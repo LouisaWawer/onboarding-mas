@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import reactLogo from "./assets/react.svg";
 import { invoke } from "@tauri-apps/api/core";
 import "./App.css";
@@ -6,15 +6,23 @@ import "./App.css";
 function App() {
   const [greetMsg, setGreetMsg] = useState("");
   const [name, setName] = useState("");
+  const [pingResult, setPingResult] = useState("Prüfe Verbindung...");
 
   async function greet() {
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
     setGreetMsg(await invoke("greet", { name }));
   }
+
+  useEffect(() => {
+    fetch("http://127.0.0.1:8000/ping")
+      .then((res) => res.json())
+      .then((data) => setPingResult(JSON.stringify(data)))
+      .catch((err) => setPingResult("Fehler: " + err.message));
+  }, []);
 
   return (
     <main className="container">
       <h1>Welcome to Tauri + React</h1>
+      <p>Backend-Status: {pingResult}</p>
 
       <div className="row">
         <a href="https://vite.dev" target="_blank">
