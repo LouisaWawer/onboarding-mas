@@ -1,0 +1,111 @@
+/*
+ * Design-Tokens: Farben
+ * Quelle: Figma-Variablen der Datei "OnboardingKI"
+ * (XDt2XoT6a73EUKFIIYCLHZ), ausgelesen aus Components/Elements-
+ * Bibliothek (node 10:22) sowie allen Screen-Frames (Chat, Tickets,
+ * Kalender, Intranet, Knowledge Hub). Abgeglichen mit
+ * docs/Finale_Farbpalette.md.
+ *
+ * Variablennamen folgen 1:1 den Figma-Variablen (z.B. `color/bg` ->
+ * --color-bg). Wo Figma keinen eigenen Namen vergibt, aber ein Token
+ * zur Vermeidung hartcodierter Hex-Werte in Komponenten nötig ist,
+ * ist das unten kommentiert.
+ */
+
+:root {
+  /* ---- Neutraltöne ---- */
+  --color-bg: #f5f5f5; /* color/bg */
+  --color-border: #d9d9d9; /* color/border */
+  --color-text: #23301f; /* color/text */
+  --color-window: #ffffff; /* color/window */
+  --color-overlay: #fffcfc; /* color/overlay – z.B. Button-Beschriftung auf Akzentfarbe */
+  --color-overlaywhite: #ffffffcc; /* color/overlaywhite – Glas/Wash-Überlagerung (Kalender, Intranet, Tree "selected") */
+  --color-faded: #bfbfbf; /* color/faded – gedämpfter/deaktivierter Text */
+
+  /*
+   * Nicht an eine Figma-Variable gebunden (Rohwert direkt am Node),
+   * aber für "keine hartcodierten Hex-Werte in Komponenten" als Token
+   * nötig: Zeitstempel-Farbe in MessageText (Chat).
+   */
+  --color-text-muted: #6b7280;
+
+  /*
+   * ---- Statusfarben ----
+   * Korrektur ggü. vorherigem Stand: Es gibt tatsächlich zwei real
+   * gebundene Wertepaare, keine Dokumentations-Swatch-Verwechslung.
+   * Figma nutzt denselben Variablennamen (color/success etc.) für zwei
+   * unterschiedliche Komponenten:
+   *  - TaskStatus (45:6653) / StatusLight-Symbolgruppe (44:6598) bei
+   *    isolierter Abfrage → kräftige Variante (Tickets)
+   *  - Status-Komponente (34:667–34:670, Präsenz-Punkt online/absent/
+   *    busy) → gedämpfte Variante, siehe --color-presence-* unten
+   */
+  --color-success: #009951; /* color/success (TaskStatus/StatusLight) */
+  --color-warning: #e5a000; /* color/warning (TaskStatus/StatusLight) */
+  --color-danger: #c00f0c; /* color/error (TaskStatus/StatusLight) */
+
+  /*
+   * ---- Präsenz-Punkt (Figma-Komponente "Status", node 34:671) ----
+   * online → color/success, absent → color/warning, busy → color/error
+   * (alle gedämpfte Variante), offline → color/faded (bereits
+   * vorhandenes Token, kein separater Eintrag nötig). StatusIndicator
+   * rendert seit dem Figma-Icon-Export (src/assets/icons/state=*.svg)
+   * die vier Original-SVGs direkt statt Farbe+Icon separat zu setzen –
+   * Farben stecken dadurch auch fest in den SVGs. Die Tokens hier bleiben
+   * als Referenz/für weitere Verwendung (z.B. eine Legende) bestehen.
+   */
+  --color-presence-online: #02542d; /* color/success (Status-Komponente) */
+  --color-presence-absent: #bf6a02; /* color/warning (Status-Komponente) */
+  --color-presence-busy: #900b09; /* color/error (Status-Komponente) */
+
+  /*
+   * ---- Badge (SidebarIcon, node 28:37–28:52) ----
+   * Benachrichtigungspunkt in allen drei Zuständen (default/hover/active)
+   * an color/error gebunden – wieder die gedämpfte Variante (#900b09,
+   * identisch mit --color-presence-busy), hier als eigenes, klar
+   * benanntes Token für den Verwendungsort.
+   */
+  --color-badge: #900b09; /* color/error (SidebarIcon Badge) */
+
+  /* ---- Akzent ---- */
+  --color-accent: #6b76d6; /* color/accent */
+  /* Feste Hover-/Active-Töne für reine Icon-Interaktionen (z.B. Chat-
+     Composer) – kein Figma-Variablen-Treffer, direkt vorgegeben, anders
+     als die Overlay-Blend-Technik bei PushButton/Filter/Tree. */
+  --color-accent-hover: #5b64b6;
+  --color-accent-active: #5059a1;
+
+  /* ---- Assistent (Lumi) ---- */
+  --color-assistant: #5b6aec; /* color/assistant */
+  --color-assistant-soft: #5b6aec80; /* color/assistant bei 50% Deckkraft, z.B. StatusLight "processing" */
+  --color-assistant-hover: #4d5ac9;
+  --color-assistant-active: #4450b1;
+
+  /* ---- Avatarfarben (Figma-Namen avatar1–avatar6) ---- */
+  --color-avatar1: #854595; /* Tom Bauer (Vertrieb, Buddy) */
+  --color-avatar2: #a98cc4; /* Laura Seifert (Controlling) */
+  --color-avatar3: #702083; /* Reserve, aktuell unbenutzt */
+  --color-avatar4: #561780; /* Anna Schmidt (HR) */
+  --color-avatar5: #4a1c85; /* Lars Becker (Marketing) */
+  --color-avatar6: #ae549c; /* Max Vogel (IT) */
+
+  /*
+   * ---- Interaktions-Überlagerungen (Hover/Press/Active/Selected) ----
+   * Figma hat keine eigenen Farb-Variablen für diese Zustände; sie
+   * werden live aus --color-accent + einer Weiß-/Schwarz-Tönung
+   * gemischt (verifiziert an PushButton, Filter, Tree). Wo die
+   * Deckkraft exakt mit einer benannten Variable übereinstimmt, wird
+   * diese verwendet: Tree "selected" (80% Weiß) = --color-overlaywhite.
+   * Für PushButton hover/press (20%) und Filter active (50%) gibt es
+   * keine passende benannte Variable – das sind die von Figma selbst
+   * exportierten Literalwerte, keine erfundenen Werte.
+   */
+  --overlay-hover-white: rgba(255, 255, 255, 0.2); /* PushButton hover */
+  --overlay-press-black: rgba(0, 0, 0, 0.2); /* PushButton press */
+  --overlay-active-white: rgba(255, 255, 255, 0.5); /* Filter active */
+  /* Tree "selected" nutzt direkt --color-overlaywhite (80% Weiß, exakter Treffer) */
+
+  /* ---- Material (Transluzenz, z.B. Kalender-Termine) ---- */
+  --color-material-ultra-thick: #f6f6f6d6; /* Material/Ultra Thick */
+  --color-material-thick: #f6f6f6b8; /* Material/Thick */
+}

@@ -1,0 +1,35 @@
+.filter {
+  height: 31px;
+  padding: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 100px;
+  border: 2px solid var(--color-border);
+  background-color: var(--color-window);
+  color: var(--color-text);
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.filter--high {
+  border-color: var(--color-danger);
+}
+
+.filter:hover {
+  background-color: var(--color-accent-hover);
+  border-color: var(--color-accent-hover);
+  color: var(--color-overlay);
+}
+
+.filter--active {
+  background-color: var(--color-accent);
+  border-color: var(--color-accent);
+  color: var(--color-overlay);
+}
+
+.filter--active.filter--high {
+  border-color: var(--color-danger);
+}

@@ -1,0 +1,36 @@
+{
+  "cleanupPeriodDays": 3650,
+  "permissions": {
+    "deny": [
+      "Read(../**)",
+      "Edit(../**)",
+      "Read(.env)",
+      "Edit(.env)",
+      "Read(**/.env)",
+      "Edit(**/.env)",
+      "Read(~/.ssh/**)",
+      "Edit(~/.ssh/**)",
+      "Read(~/.aws/**)",
+      "Edit(~/.aws/**)",
+      "Bash(cat ../*)",
+      "Bash(cat *.env)",
+      "Bash(cat ~/.ssh/*)",
+      "Bash(cat ~/.aws/*)",
+      "Bash(less ../*)",
+      "Bash(less *.env)",
+      "Bash(less ~/.ssh/*)",
+      "Bash(less ~/.aws/*)",
+      "Bash(head ../*)",
+      "Bash(head *.env)",
+      "Bash(head ~/.ssh/*)",
+      "Bash(head ~/.aws/*)",
+      "Bash(grep * ../*)",
+      "Bash(grep * *.env)",
+      "Bash(grep * ~/.ssh/*)",
+      "Bash(grep * ~/.aws/*)"
+    ]
+  },
+  "sandbox": {
+    "enabled": true
+  }
+}

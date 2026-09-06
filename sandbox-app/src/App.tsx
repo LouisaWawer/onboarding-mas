@@ -1,122 +1,56 @@
 import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
+import Sidebar, { type SidebarItemId } from './components/Sidebar/Sidebar'
+import Topbar from './components/Topbar/Topbar'
+import Chat from './screens/Chat/Chat'
+import KnowledgeHub from './screens/KnowledgeHub/KnowledgeHub'
+import Tickets from './screens/Tickets/Tickets'
+import Kalender from './screens/Kalender/Kalender'
+import Intranet from './screens/Intranet/Intranet'
+import { AppNotificationsProvider, useAppNotifications } from './state/AppNotifications'
+import { ChatStateProvider } from './state/ChatState'
 import './App.css'
 
-function App() {
-  const [count, setCount] = useState(0)
+function AppContent() {
+  const [active, setActive] = useState<SidebarItemId>('chat')
+  const [hubResetToken, setHubResetToken] = useState(0)
+  const { badges } = useAppNotifications()
+
+  function handleNavigate(id: SidebarItemId) {
+    setActive(id)
+    // Sidebar-Icon dient als Home-Button für den Knowledge Hub: jeder Klick
+    // (auch bei bereits aktivem Bereich) soll zur Landing-Ansicht zurückführen.
+    if (id === 'hub') setHubResetToken((prev) => prev + 1)
+  }
 
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.tsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
-
-      <div className="ticks"></div>
-
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
-
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
+    <div className="app-shell">
+      <Topbar />
+      <div className="app-shell__body">
+        <Sidebar active={active} onNavigate={handleNavigate} badges={badges} />
+        <main className="app-shell__screen">
+          {active === 'chat' ? (
+            <Chat />
+          ) : active === 'hub' ? (
+            <KnowledgeHub resetToken={hubResetToken} />
+          ) : active === 'tickets' ? (
+            <Tickets />
+          ) : active === 'calendar' ? (
+            <Kalender />
+          ) : (
+            <Intranet />
+          )}
+        </main>
+      </div>
+    </div>
   )
 }
 
-export default App
+export default function App() {
+  return (
+    <AppNotificationsProvider>
+      <ChatStateProvider>
+        <AppContent />
+      </ChatStateProvider>
+    </AppNotificationsProvider>
+  )
+}

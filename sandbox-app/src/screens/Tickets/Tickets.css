@@ -1,0 +1,127 @@
+.tickets {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  background-color: var(--color-bg);
+  padding: 8px;
+  box-sizing: border-box;
+}
+
+/* Entspricht Figmas Tickets-"Content" (node 44:6231): weiße, abgerundete
+   Karte mit Schlagschatten – derselbe Wert wie beim Knowledge Hub. */
+.tickets__card {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background-color: var(--color-window);
+  border-radius: 8px;
+  box-shadow: -1px 3px 2.5px 0px rgba(0, 0, 0, 0.2);
+  overflow: auto;
+}
+
+.tickets__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  height: 62px;
+  padding: 16px 32px;
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+
+.tickets__title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+/*.tickets__divider {
+  width: 100%;
+  height: 1px;
+  background-color: var(--color-border);
+  flex-shrink: 0;
+}*/
+
+.tickets__table {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-width: 900px;
+}
+
+/* Grid statt justify-content:space-between: die Spaltenbreiten sind damit
+   fix und identisch zwischen Header- und Datenzeilen, unabhängig von der
+   jeweiligen Inhaltsbreite (z.B. "Ticket ID"). */
+.tickets__row {
+  display: grid;
+  grid-template-columns: 120px 240px 120px 180px 80px 1fr 48px;
+  align-items: center;
+  width: 100%;
+  height: 80px;
+  padding: 0 48px;
+  box-sizing: border-box;
+  border: none;
+  border-bottom: 1px solid var(--color-border);
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tickets__row:not(.tickets__row--header):hover,
+.tickets__row:not(.tickets__row--header):active,
+.tickets__row--active {
+  background-color: color-mix(in srgb, var(--color-accent) 6%, transparent);
+}
+
+.tickets__row--header {
+  height: 40px;
+  border-bottom: none;
+  border-top-left-radius: 24px;
+  /* color/accent + 80% Weiß-Überlagerung = --color-overlaywhite, exakter
+     Treffer aus Figma (dieselbe Blend-Technik wie Tree "selected"). */
+  background-image: linear-gradient(var(--color-overlaywhite), var(--color-overlaywhite)),
+    linear-gradient(var(--color-accent), var(--color-accent));
+}
+
+.tickets__col {
+  font-size: 12px;
+  color: var(--color-text);
+}
+
+.tickets__row--header .tickets__col {
+  font-weight: 400;
+}
+
+.tickets__row:not(.tickets__row--header) .tickets__col--date,
+.tickets__row:not(.tickets__row--header) .tickets__col--topic,
+.tickets__row:not(.tickets__row--header) .tickets__col--department,
+.tickets__row:not(.tickets__row--header) .tickets__col--ticketid,
+.tickets__row:not(.tickets__row--header) .tickets__col--estimate {
+  font-size: 14px;
+}
+
+.tickets__col--estimate {
+  text-align: right;
+}
+
+.tickets__col--indicator {
+  display: flex;
+  justify-content: center;
+}
+
+/* Exakt derselbe Stil wie der Ungelesen-Punkt in ChatListItem
+   (.chat-list-item__badge) – bewusst dieselbe Fläche, keine neue,
+   andersartige Komponente. */
+.tickets__new-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 9999px;
+  background-color: var(--color-accent);
+  flex-shrink: 0;
+}

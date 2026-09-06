@@ -1,0 +1,210 @@
+.intranet {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  background-color: var(--color-bg);
+  padding: 8px;
+  box-sizing: border-box;
+}
+
+/* Entspricht Figmas Intranet-"Content" (node 69:9822): weiße, abgerundete
+   Karte mit Schlagschatten – hier 5% statt der 20% bei den anderen
+   Screens, exakter Figma-Wert für diesen Screen. */
+.intranet__card {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--color-window);
+  border-radius: 8px;
+  box-shadow: -1px 3px 2.5px 0px rgba(0, 0, 0, 0.05);
+  overflow-y: auto;
+}
+
+.intranet__header {
+  display: flex;
+  align-items: center;
+  padding: 16px 40px;
+  flex-shrink: 0;
+}
+
+.intranet__title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.intranet__divider {
+  height: 1px;
+  background-color: var(--color-border);
+  flex-shrink: 0;
+}
+
+.intranet__tabs {
+  display: flex;
+  gap: 32px;
+  padding: 0 80px;
+  flex-shrink: 0;
+  overflow-x: auto;
+}
+
+.intranet__tab {
+  padding: 16px 24px;
+  border: none;
+  border-radius: 100px;
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  font-size: 14px;
+  font-weight: 500;
+  font-family: 'Inter', system-ui, sans-serif;
+  white-space: nowrap;
+  cursor: pointer;
+  margin: 8px 0;
+}
+
+.intranet__tab--active {
+  /* color/accent + 80% Weiß-Überlagerung = --color-overlaywhite, exakter
+     Treffer aus Figma (dieselbe Blend-Technik wie Tree "selected"). */
+  background-image: linear-gradient(var(--color-overlaywhite), var(--color-overlaywhite)),
+    linear-gradient(var(--color-accent), var(--color-accent));
+}
+
+.intranet__content {
+  display: flex;
+  flex-direction: column;
+  padding: 8px 40px 32px;
+}
+
+.intranet__post {
+  padding: 16px 0;
+}
+
+.intranet__post-title {
+  margin: 0 0 8px;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.intranet__post-meta {
+  margin: 0 0 16px;
+  font-size: 12px;
+  color: var(--color-faded);
+}
+
+.intranet__post-body {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--color-text);
+  white-space: pre-line;
+}
+
+.intranet__post-divider {
+  height: 1px;
+  background-color: var(--color-border);
+  margin-top: 16px;
+}
+
+.intranet__directory {
+  list-style: none;
+  margin: 0;
+  padding: 8px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.intranet__person {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.intranet__person-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.intranet__person-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.intranet__person-role {
+  font-size: 12px;
+  color: var(--color-faded);
+}
+
+.intranet__report {
+  margin-left: auto;
+  border: none;
+  background: none;
+  color: var(--color-danger);
+  font-size: 12px;
+  font-family: 'Inter', system-ui, sans-serif;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.intranet__empty {
+  padding: 32px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.intranet__empty p {
+  margin: 0;
+  font-size: 14px;
+  color: var(--color-text);
+}
+
+.intranet__empty .intranet__empty-hint {
+  color: var(--color-faded);
+}
+
+.intranet__about {
+  padding: 16px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.intranet__about-name {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.intranet__facts {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.intranet__fact {
+  display: flex;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.intranet__fact dt {
+  font-weight: 500;
+  color: var(--color-text);
+  width: 100px;
+  flex-shrink: 0;
+}
+
+.intranet__fact dd {
+  margin: 0;
+  color: var(--color-faded);
+}

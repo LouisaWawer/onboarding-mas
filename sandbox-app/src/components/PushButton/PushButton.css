@@ -1,0 +1,27 @@
+.push-button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 16px;
+  border: none;
+  border-radius: 4px;
+  background-color: var(--color-accent);
+  color: var(--color-overlay);
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 12px;
+  text-align: center;
+  cursor: pointer;
+}
+
+.push-button:hover {
+  /* Exakt wie in Figma (PushButton "hover"): color/accent + 20% Weiß-Überlagerung. */
+  background-image: linear-gradient(var(--overlay-hover-white), var(--overlay-hover-white)),
+    linear-gradient(var(--color-accent), var(--color-accent));
+}
+
+.push-button:active {
+  /* Exakt wie in Figma (PushButton "press"): color/accent + 20% Schwarz-Überlagerung. */
+  background-image: linear-gradient(var(--overlay-press-black), var(--overlay-press-black)),
+    linear-gradient(var(--color-accent), var(--color-accent));
+}

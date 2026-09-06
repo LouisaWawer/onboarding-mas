@@ -1,0 +1,86 @@
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  height: 48px;
+  padding: 12px 23px;
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+
+.topbar__window-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.topbar__dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 9999px;
+}
+
+/* Echte macOS-Fensterknopf-Farben (OS-Chrome-Nachbildung, bewusst außerhalb
+   des App-Farbsystems – kein Figma-Variablen-Äquivalent). */
+.topbar__dot--close {
+  background-color: #ff5f57;
+}
+
+.topbar__dot--minimize {
+  background-color: #febc2e;
+}
+
+.topbar__dot--zoom {
+  background-color: #28c840;
+}
+
+.topbar__search {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  max-width: 474px;
+  height: 24px;
+  margin: 0 auto;
+  padding: 0 12px;
+  border-radius: 9999px;
+  border: 1px solid var(--color-border);
+  /* Näherung an Figmas "Liquid Glass"/Frost-Effekt (macOS 26) – kein
+     exaktes Äquivalent in unserem Token-System. */
+  background-color: color-mix(in srgb, var(--color-window) 70%, transparent);
+  backdrop-filter: blur(12px);
+}
+
+.topbar__search input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 13px;
+  font-family: 'Inter', system-ui, sans-serif;
+  color: var(--color-text);
+}
+
+.topbar__end {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  width: 80px;
+  flex-shrink: 0;
+}
+
+.topbar__more {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  flex-shrink: 0;
+}

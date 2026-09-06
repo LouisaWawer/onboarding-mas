@@ -1,0 +1,5 @@
+.user-with-status {
+  display: inline-flex;
+  align-items: flex-end;
+  flex-shrink: 0;
+}
