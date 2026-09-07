@@ -1,0 +1,5 @@
+{"timestamp": "2026-09-06T18:44:55.000628", "session_id": "test", "category": "pruefer_check", "node": "pruefer", "task": "vpn_zugang", "channel": "dm", "verdict": "beanstandung", "issues": ["Konfidenzwert bei kritischer Aussage verwendet (L2 verletzt)"]}
+{"timestamp": "2026-09-06T18:44:55.000912", "session_id": "test", "category": "pruefer_check", "node": "pruefer", "task": "vpn_zugang", "channel": "dm", "verdict": "beanstandung", "issues": ["generische Floskel statt konkreter Begründung (L3 verletzt)"]}
+{"timestamp": "2026-09-06T18:44:55.000983", "session_id": "test", "category": "pruefer_check", "node": "pruefer", "task": "vpn_zugang", "channel": "dm", "verdict": "freigabe", "issues": []}
+{"timestamp": "2026-09-06T21:42:59.809738", "session_id": "37089d36-ba9a-4825-93f6-0e0f6835a35e", "category": "pruefer_check", "node": "pruefer", "task": "vpn_zugang", "channel": "dm", "verdict": "freigabe", "issues": []}
+{"timestamp": "2026-09-06T21:46:22.192310", "session_id": "37089d36-ba9a-4825-93f6-0e0f6835a35e", "category": "confirm", "node": "human_review", "task": "vpn_zugang", "channel": "dm", "decision": "bestätigen"}

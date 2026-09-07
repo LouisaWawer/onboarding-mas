@@ -16,9 +16,12 @@ Ablauf:
 
 from langgraph.graph import StateGraph, END
 from langgraph.types import interrupt, Command
-from langgraph.checkpoint.sqlite import SqliteSaver
 from anthropic import Anthropic
+from dotenv import load_dotenv
 import os
+
+load_dotenv()  # liest backend/.env ein - ohne diesen Aufruf bleibt
+                # ANTHROPIC_API_KEY trotz korrekt gefüllter .env-Datei leer
 
 from .state import OnboardingState
 from .tools import AVAILABLE_TOOLS
@@ -293,7 +296,7 @@ def execute_action_node(state: OnboardingState) -> OnboardingState:
 # Graph zusammensetzen
 # ---------------------------------------------------------------------------
 
-def build_graph():
+def build_graph(checkpointer=None):
     graph = StateGraph(OnboardingState)
 
     graph.add_node("supervisor", supervisor_node)
@@ -331,5 +334,9 @@ def build_graph():
     graph.add_edge("execute_action", END)
     graph.add_edge("escalate", END)
 
-    checkpointer = SqliteSaver.from_conn_string("checkpoints.sqlite")
+    # Checkpointer wird vom Aufrufer übergeben (siehe test_graph.py) - muss
+    # als "with SqliteSaver.from_conn_string(...) as checkpointer:" über die
+    # GESAMTE Testlauf-Dauer offen gehalten werden, da from_conn_string in
+    # aktuellen langgraph-Versionen ein Context-Manager ist, kein direktes
+    # Objekt. build_graph() erzeugt ihn deshalb bewusst NICHT mehr selbst.
     return graph.compile(checkpointer=checkpointer)

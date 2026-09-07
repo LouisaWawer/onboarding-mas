@@ -8,11 +8,11 @@ Bei einem interrupt() wirst du im Terminal nach deiner Entscheidung gefragt.
 
 import uuid
 from agent.graph import build_graph
+from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.types import Command
 
 
 def run_test():
-    graph = build_graph()
     session_id = str(uuid.uuid4())
     config = {"configurable": {"thread_id": session_id}}
 
@@ -36,24 +36,31 @@ def run_test():
         "channel": "dm",
     }
 
-    print("=== Starte Graph ===")
-    result = graph.invoke(initial_state, config)
-    _print_state(result)
+    # WICHTIG: from_conn_string ist in aktuellen langgraph-Versionen ein
+    # Context-Manager - die Verbindung muss über die GESAMTE Testlauf-Dauer
+    # offen bleiben (mehrere invoke()-Aufrufe bei Interrupt/Resume), deshalb
+    # liegt der komplette Testlauf innerhalb dieses with-Blocks.
+    with SqliteSaver.from_conn_string("checkpoints.sqlite") as checkpointer:
+        graph = build_graph(checkpointer)
 
-    while "__interrupt__" in result:
-        interrupt_data = result["__interrupt__"][0].value
-        print("\n--- INTERRUPT: der Graph wartet auf dich ---")
-        print("Vorschlag:", interrupt_data.get("proposal"))
-        if interrupt_data.get("change_notice"):
-            print("Hinweis auf Änderung:", interrupt_data["change_notice"])
-        print("Optionen:", interrupt_data.get("options"))
-
-        decision = input("Deine Entscheidung (genauen Options-Text eingeben): ")
-        result = graph.invoke(Command(resume=decision), config)
+        print("=== Starte Graph ===")
+        result = graph.invoke(initial_state, config)
         _print_state(result)
 
-    print("\n=== Graph beendet ===")
-    print("Finaler Sandbox-Zustand:", result.get("sandbox_state"))
+        while "__interrupt__" in result:
+            interrupt_data = result["__interrupt__"][0].value
+            print("\n--- INTERRUPT: der Graph wartet auf dich ---")
+            print("Vorschlag:", interrupt_data.get("proposal"))
+            if interrupt_data.get("change_notice"):
+                print("Hinweis auf Änderung:", interrupt_data["change_notice"])
+            print("Optionen:", interrupt_data.get("options"))
+
+            decision = input("Deine Entscheidung (genauen Options-Text eingeben): ")
+            result = graph.invoke(Command(resume=decision), config)
+            _print_state(result)
+
+        print("\n=== Graph beendet ===")
+        print("Finaler Sandbox-Zustand:", result.get("sandbox_state"))
 
 
 def _print_state(result):
@@ -67,3 +74,4 @@ def _print_state(result):
 
 if __name__ == "__main__":
     run_test()
+
