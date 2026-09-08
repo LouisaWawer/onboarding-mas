@@ -17,7 +17,7 @@ def run_test():
     config = {"configurable": {"thread_id": session_id}}
 
     initial_state = {
-        "messages": [{"role": "user", "content": "Ich brauche VPN-Zugang, kannst du das einrichten?"}],
+        "messages": [{"role": "user", "content": "Ich brauche VPN-Zugang und hätte außerdem eine Frage zur Urlaubsregelung."}],
         "session_id": session_id,
         "current_task": None,
         "active_agent": "",

@@ -7,7 +7,7 @@ from typing import TypedDict, Literal, Optional
 
 TransparencyLevel = Literal["high", "medium", "low"]
 ControlLevel = Literal["high", "medium", "low"]
-CheckTarget = Literal["initial_request", "subagent_query", "correction"]
+CheckTarget = Literal["initial_request", "subagent_query", "correction", "next_subtask"]
 PrueferVerdict = Literal["freigabe", "beanstandung"]
 
 
@@ -25,6 +25,10 @@ class OnboardingState(TypedDict):
 
     current_task: Optional[str]
     active_agent: str  # "infrastructure_agent" | "escalate" | ...
+
+    # Teilschritt-Zerlegung: Nutzer-Nachricht kann mehrere Anliegen enthalten
+    subtasks: list[dict]
+    subtask_index: int
 
     transparency_level: TransparencyLevel
     control_level: ControlLevel
