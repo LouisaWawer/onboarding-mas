@@ -65,10 +65,42 @@ def supervisor_node(state: OnboardingState) -> OnboardingState:
         state["active_agent"] = "infrastructure_agent"
         return state
 
-    # Ersteingang (RBAC/Richtlinien-Check würde hier später ansetzen -
-    # für den Infrastructure-Pfad aktuell durchgereicht)
+    # Ersteingang: Klassifikation statt hart kodiertem Wert. Bewusst ein
+    # SEPARATER, kleiner API-Call mit sehr niedrigem max_tokens - nicht der
+    # eigentliche Antwort-Call, nur eine Ein-Wort-Einordnung.
     state["dot_status"] = "active"
-    state["active_agent"] = "infrastructure_agent"
+
+    classification_prompt = (
+        "Ordne die letzte Nutzer-Nachricht GENAU EINEM Bereich zu: "
+        "'infrastructure' (VPN, Zugänge, Hardware, Software) oder "
+        "'other' (alles andere, auch wenn unklar). "
+        "Antworte NUR mit einem dieser zwei Wörter, sonst nichts."
+    )
+    response = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=10,
+        system=classification_prompt,
+        messages=state["messages"],
+    )
+    routing = response.content[0].text.strip().lower()
+
+    # Fallback-Logik: Bei allem, was nicht eindeutig "infrastructure" ist,
+    # wird eskaliert statt geraten (ADR-004-Prinzip: im Zweifel nicht
+    # improvisieren). Sobald scheduling_agent/info_agent existieren, hier
+    # die ROUTING_MAP entsprechend erweitern.
+    ROUTING_MAP = {
+        "infrastructure": "infrastructure_agent",
+    }
+    state["active_agent"] = ROUTING_MAP.get(routing, "escalate")
+
+    log_interaction(
+        category="routing",
+        node="supervisor",
+        session_id=state["session_id"],
+        channel=state["channel"],
+        classification=routing,
+        routed_to=state["active_agent"],
+    )
     return state
 
 
