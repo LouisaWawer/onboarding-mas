@@ -66,9 +66,11 @@ DECOMPOSE_TOOL = {
                         },
                         "category": {
                             "type": "string",
-                            "enum": ["infrastructure", "other"],
+                            "enum": ["infrastructure", "info", "other"],
                             "description": (
                                 "'infrastructure' = VPN/Zugänge/Hardware/Software, "
+                                "'info' = allgemeine organisatorische Fragen (Urlaub, "
+                                "Richtlinien, Onboarding-Themen), "
                                 "'other' = alles andere, auch wenn unklar"
                             ),
                         },
@@ -116,6 +118,20 @@ def _extract_tool_input(response, tool_name: str) -> dict:
     raise ValueError(f"Kein Tool-Use-Block für '{tool_name}' in der Antwort gefunden")
 
 
+def _messages_ending_with_user(messages: list, fallback_instruction: str) -> list:
+    """Stellt sicher, dass eine Nachrichtenliste mit einer User-Nachricht endet -
+    Anthropic-API-Anforderung ('conversation must end with a user message').
+
+    Wird gebraucht, sobald mehrere Agenten NACHEINANDER auf denselben
+    state["messages"]-Verlauf zugreifen (Mehrfach-Teilschritt-Zerlegung):
+    Der zweite Sub-Agent würde sonst eine Konversation vorfinden, die mit
+    der Antwort des ERSTEN Sub-Agenten (role="assistant") endet. Gibt eine
+    NEUE Liste zurück, verändert die übergebene Liste nicht."""
+    if messages and messages[-1]["role"] == "assistant":
+        return messages + [{"role": "user", "content": fallback_instruction}]
+    return messages
+
+
 # ---------------------------------------------------------------------------
 # Supervisor: wiederverwendeter Knoten für Ersteingang UND Korrekturschleife
 # ---------------------------------------------------------------------------
@@ -125,9 +141,10 @@ import json
 
 def _route_for_category(category: str) -> str:
     """Zentrale Zuordnung Kategorie -> Graph-Knoten. Hier erweitern, sobald
-    scheduling_agent/info_agent existieren."""
+    scheduling_agent existiert."""
     ROUTING_MAP = {
         "infrastructure": "infrastructure_agent",
+        "info": "info_agent",
     }
     return ROUTING_MAP.get(category, "escalate")
 
@@ -227,12 +244,19 @@ def infrastructure_agent_node(state: OnboardingState) -> OnboardingState:
             + ". Bitte korrigiere das in deiner nächsten Antwort."
         )
 
-    # 1. Natürliche Antwort an die Nutzer:in (unverändert)
+    # 1. Natürliche Antwort an die Nutzer:in. Nachrichtenliste absichern
+    # (siehe _messages_ending_with_user) - bei einem zweiten oder weiteren
+    # Teilschritt endet state["messages"] sonst mit der Antwort des VORIGEN
+    # Sub-Agenten (role="assistant"), was die API ablehnt.
+    call_messages = _messages_ending_with_user(
+        state["messages"],
+        f"Bitte kümmere dich jetzt um diesen Teilschritt: {state['current_task']}",
+    )
     response = client.messages.create(
         model="claude-sonnet-4-6",
         max_tokens=300,
         system=system_prompt,
-        messages=state["messages"],
+        messages=call_messages,
     )
     state["messages"].append({"role": "assistant", "content": response.content[0].text})
 
@@ -277,8 +301,60 @@ def infrastructure_agent_node(state: OnboardingState) -> OnboardingState:
 
 
 # ---------------------------------------------------------------------------
-# Prüfer: schlank, primär regelbasiert (Punkt 3 aus dem Architektur-Gespräch)
+# Info-Agent: allgemeine organisatorische Fragen, nutzt search_documents
 # ---------------------------------------------------------------------------
+
+def info_agent_node(state: OnboardingState) -> OnboardingState:
+    query = state["current_task"]
+    results = AVAILABLE_TOOLS["search_documents"](state["sandbox_state"], query)
+
+    system_prompt = build_system_prompt(state["transparency_level"])
+    system_prompt += (
+        f"\n\nWICHTIG: Kümmere dich in dieser Antwort AUSSCHLIESSLICH um "
+        f"folgenden Teilschritt: \"{state['current_task']}\". Falls die "
+        f"ursprüngliche Nachricht weitere Anliegen enthält, werden diese "
+        f"separat behandelt - gehe NICHT darauf ein, auch nicht kurz erwähnend."
+    )
+
+    if results:
+        docs_context = "\n".join(
+            f"- {r['title']}: {r.get('summary', '')}" for r in results
+        )
+        system_prompt += (
+            f"\n\nGefundene relevante Inhalte aus Knowledge Hub/Intranet:\n"
+            f"{docs_context}\nNutze diese als Grundlage für deine Antwort, "
+            f"erfinde keine Details, die dort nicht stehen."
+        )
+    else:
+        system_prompt += (
+            "\n\nEs wurden keine passenden Dokumente gefunden. Erkläre das "
+            "ehrlich, statt zu improvisieren."
+        )
+
+    if state.get("pruefer_issues"):
+        system_prompt += (
+            "\n\nDeine letzte Antwort wurde beanstandet: "
+            + "; ".join(state["pruefer_issues"])
+            + ". Bitte korrigiere das in deiner nächsten Antwort."
+        )
+
+    call_messages = _messages_ending_with_user(
+        state["messages"],
+        f"Bitte kümmere dich jetzt um diesen Teilschritt: {state['current_task']}",
+    )
+    response = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=300,
+        system=system_prompt,
+        messages=call_messages,
+    )
+    state["messages"].append({"role": "assistant", "content": response.content[0].text})
+
+    # info_agent beantwortet i.d.R. direkt, ohne Tool-Aktion vorzuschlagen -
+    # reine Informationsantwort, kein Bestätigungsschritt nötig.
+    state["pending_action"] = None
+    return state
+
 
 def pruefer_node(state: OnboardingState) -> OnboardingState:
     last_response = state["messages"][-1]["content"]
@@ -502,6 +578,7 @@ def build_graph(checkpointer=None):
 
     graph.add_node("supervisor", supervisor_node)
     graph.add_node("infrastructure_agent", infrastructure_agent_node)
+    graph.add_node("info_agent", info_agent_node)
     graph.add_node("pruefer", pruefer_node)
     graph.add_node("context_check", context_check_node)
     graph.add_node("updated_query", updated_query_node)
@@ -512,11 +589,13 @@ def build_graph(checkpointer=None):
     graph.set_entry_point("supervisor")
     graph.add_conditional_edges("supervisor", route_from_supervisor, {
         "infrastructure_agent": "infrastructure_agent",
+        "info_agent": "info_agent",
         "escalate": "escalate",
         "__end__": END,
     })
 
     graph.add_edge("infrastructure_agent", "pruefer")
+    graph.add_edge("info_agent", "pruefer")
     graph.add_conditional_edges("pruefer", route_from_pruefer, {
         "supervisor": "supervisor",
         "context_check": "context_check",
