@@ -323,7 +323,10 @@ def info_agent_node(state: OnboardingState) -> OnboardingState:
         system_prompt += (
             f"\n\nGefundene relevante Inhalte aus Knowledge Hub/Intranet:\n"
             f"{docs_context}\nNutze diese als Grundlage für deine Antwort, "
-            f"erfinde keine Details, die dort nicht stehen."
+            f"erfinde keine Details, die dort nicht stehen. Nenne am Ende "
+            f"deiner Antwort explizit, aus welchem Dokument/Artikel die "
+            f"Information stammt (Titel nennen, z.B. \"(Quelle: [Titel])\"), "
+            f"damit die Nutzer:in die Angabe selbst nachlesen kann."
         )
     else:
         system_prompt += (
