@@ -43,19 +43,26 @@ INTRANET_POSTS = [
 def search_knowledge_and_intranet(query: str, top_k: int = 3) -> list[dict]:
     """Einfache Keyword-Suche über Titel + Zusammenfassung.
 
-    Bewusst simpel (keine Embeddings/Vektorsuche) - für die überschaubare
-    Anzahl Artikel im Prototyp ausreichend. Bei Bedarf später durch
-    semantische Suche ersetzbar, ohne die Tool-Schnittstelle zu ändern.
+    Wortweiser, BEIDSEITIGER Teilstring-Vergleich (statt nur "Anfragewort
+    exakt im Gesamttext enthalten") - das fängt Wortformen wie
+    "Urlaubsregelung" vs. Artikel-Titel "Urlaub" ab, die sich sonst nicht
+    treffen, obwohl sie inhaltlich zusammengehören. Bewusst simpel (keine
+    Embeddings/Vektorsuche) - für die überschaubare Anzahl Artikel im
+    Prototyp ausreichend. Bei Bedarf später durch semantische Suche
+    ersetzbar, ohne die Tool-Schnittstelle zu ändern.
     """
-    query_lower = query.lower()
+    query_words = query.lower().split()
     all_content = [{**a, "source": "knowledge_hub"} for a in KNOWLEDGE_ARTICLES] + [
         {**p, "source": "intranet"} for p in INTRANET_POSTS
     ]
 
     scored = []
     for item in all_content:
-        text = f"{item['title']} {item.get('summary', '')}".lower()
-        score = sum(1 for word in query_lower.split() if word in text)
+        text_words = f"{item['title']} {item.get('summary', '')}".lower().split()
+        score = 0
+        for qw in query_words:
+            if any(qw in tw or tw in qw for tw in text_words):
+                score += 1
         if score > 0:
             scored.append((score, item))
 
