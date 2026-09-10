@@ -244,10 +244,21 @@ def infrastructure_agent_node(state: OnboardingState) -> OnboardingState:
             + ". Bitte korrigiere das in deiner nächsten Antwort."
         )
 
-    # 1. Natürliche Antwort an die Nutzer:in. Nachrichtenliste absichern
-    # (siehe _messages_ending_with_user) - bei einem zweiten oder weiteren
-    # Teilschritt endet state["messages"] sonst mit der Antwort des VORIGEN
-    # Sub-Agenten (role="assistant"), was die API ablehnt.
+    # --- TEMPORÄRER TEST-HOOK: erzwingt beim ERSTEN Versuch eine Floskel,
+    # um die Korrekturschleife gezielt auszulösen. Nach dem Test wieder
+    # entfernen (siehe Architektur-Gespräch, Punkt 1 - Korrekturschleife
+    # testen). ---
+    if state.get("correction_count", 0) == 0:
+        system_prompt += (
+            "\n\nTESTMODUS: Baue in diese eine Antwort irgendwo den Satz "
+            "'Das mache ich aus verschiedenen Gründen so.' ein."
+        )
+    # --- ENDE TEST-HOOK ---
+
+    # 1. Antwort-Entwurf generieren. Nachrichtenliste absichern (siehe
+    # _messages_ending_with_user) - bei einem zweiten/weiteren Teilschritt
+    # ODER einem zweiten Korrekturversuch endet state["messages"] sonst mit
+    # einer Assistant-Nachricht, was die API ablehnt.
     call_messages = _messages_ending_with_user(
         state["messages"],
         f"Bitte kümmere dich jetzt um diesen Teilschritt: {state['current_task']}",
@@ -258,20 +269,20 @@ def infrastructure_agent_node(state: OnboardingState) -> OnboardingState:
         system=system_prompt,
         messages=call_messages,
     )
-    state["messages"].append({"role": "assistant", "content": response.content[0].text})
+    # WICHTIG: NICHT direkt an state["messages"] anhängen - erst nach
+    # Prüfer-Freigabe (siehe pruefer_node). So bleiben abgelehnte Entwürfe
+    # aus der Korrekturschleife unsichtbar für die Nutzer:in (wie geplant:
+    # "Korrektur läuft nur intern"), UND es entstehen nie zwei
+    # Assistant-Nachrichten hintereinander in der gespeicherten Historie.
+    state["draft_response"] = response.content[0].text
 
-    # 2. Strukturierte Aktions-Extraktion per Tool Use - ersetzt den früher
-    # hart kodierten pending_action. Eigener, kleiner Call statt den Text
-    # von oben nachträglich zu parsen, damit die freie Antwort (1) und die
-    # strukturierte Entscheidung (2) unabhängig voneinander bleiben.
-    #
-    # WICHTIG: eigene Nachrichtenliste (nicht state["messages"] direkt), die
-    # zusätzlich mit einer User-Nachricht endet - die Anthropic-API lehnt
-    # Anfragen ab, deren Konversation mit "assistant" endet (die gerade eben
-    # angehängte Antwort von oben). Die eigentliche, sichtbare Historie in
-    # state["messages"] bleibt davon unberührt.
-    extraction_messages = state["messages"] + [
-        {"role": "user", "content": "Bewerte anhand des bisherigen Gesprächs: ist ein Ticket nötig?"}
+    # 2. Strukturierte Aktions-Extraktion per Tool Use - basiert auf dem
+    # ENTWURF (noch nicht bestätigt), nicht auf state["messages"]. Eigene,
+    # rein lokale Nachrichtenliste - landet nirgends in der gespeicherten
+    # Historie.
+    extraction_messages = call_messages + [
+        {"role": "assistant", "content": state["draft_response"]},
+        {"role": "user", "content": "Bewerte anhand des bisherigen Gesprächs: ist ein Ticket nötig?"},
     ]
     extraction_response = client.messages.create(
         model="claude-sonnet-4-6",
@@ -351,16 +362,18 @@ def info_agent_node(state: OnboardingState) -> OnboardingState:
         system=system_prompt,
         messages=call_messages,
     )
-    state["messages"].append({"role": "assistant", "content": response.content[0].text})
+    # NICHT direkt an state["messages"] anhängen - erst nach Prüfer-Freigabe
+    # (siehe pruefer_node und infrastructure_agent_node, gleiches Prinzip).
+    state["draft_response"] = response.content[0].text
 
-    # info_agent beantwortet i.d.R. direkt, ohne Tool-Aktion vorzuschlagen -
-    # reine Informationsantwort, kein Bestätigungsschritt nötig.
+    # info_agent schlägt i.d.R. keine Tool-Aktion vor - reine
+    # Informationsantwort, kein Bestätigungsschritt nötig.
     state["pending_action"] = None
     return state
 
 
 def pruefer_node(state: OnboardingState) -> OnboardingState:
-    last_response = state["messages"][-1]["content"]
+    last_response = state.get("draft_response", "")
     issues = []
 
     is_critical = (state.get("pending_action") or {}).get("is_critical", False)
@@ -373,6 +386,12 @@ def pruefer_node(state: OnboardingState) -> OnboardingState:
 
     state["pruefer_issues"] = issues
     state["pruefer_verdict"] = "beanstandung" if issues else "freigabe"
+
+    if state["pruefer_verdict"] == "freigabe":
+        # Erst JETZT wird der Entwurf Teil der sichtbaren, permanenten
+        # Historie - abgelehnte Entwürfe (Korrekturschleife) haben es nie
+        # bis hierher geschafft und bleiben unsichtbar für die Nutzer:in.
+        state["messages"].append({"role": "assistant", "content": state["draft_response"]})
 
     log_interaction(
         category="pruefer_check",

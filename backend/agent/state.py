@@ -7,7 +7,7 @@ from typing import TypedDict, Literal, Optional
 
 TransparencyLevel = Literal["high", "medium", "low"]
 ControlLevel = Literal["high", "medium", "low"]
-CheckTarget = Literal["initial_request", "subagent_query", "correction", "next_subtask"]
+CheckTarget = Literal["initial_request", "next_subtask", "subagent_query", "correction"]
 PrueferVerdict = Literal["freigabe", "beanstandung"]
 
 
@@ -26,15 +26,13 @@ class OnboardingState(TypedDict):
     current_task: Optional[str]
     active_agent: str  # "infrastructure_agent" | "escalate" | ...
 
-    # Teilschritt-Zerlegung: Nutzer-Nachricht kann mehrere Anliegen enthalten
-    subtasks: list[dict]
-    subtask_index: int
-
     transparency_level: TransparencyLevel
     control_level: ControlLevel
 
     # Supervisor/Prüfer-Kreislauf
     check_target: CheckTarget
+    subtasks: list[dict]          # [{"subtask": str, "category": str}, ...] - Zerlegung der Nachricht
+    subtask_index: int            # welcher Teilschritt aktuell bearbeitet wird
     pruefer_verdict: Optional[PrueferVerdict]
     pruefer_issues: list[str]
     correction_count: int  # Abbruchbedingung: nach Überschreiten -> escalate
@@ -44,6 +42,12 @@ class OnboardingState(TypedDict):
     pending_action_snapshot: Optional[dict]
     context_changed: bool
     change_description: Optional[str]
+
+    # Entwurf einer Sub-Agenten-Antwort, VOR Prüfer-Freigabe - wird erst bei
+    # "freigabe" permanent an messages angehängt. Verhindert, dass abgelehnte
+    # Entwürfe (Korrekturschleife) sichtbar in der Historie landen UND
+    # verhindert das API-Problem "zwei Assistant-Nachrichten hintereinander".
+    draft_response: Optional[str]
 
     dot_status: Literal["idle", "active", "waiting"]
     sandbox_state: dict
