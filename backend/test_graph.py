@@ -17,13 +17,15 @@ def run_test():
     config = {"configurable": {"thread_id": session_id}}
 
     initial_state = {
-        "messages": [{"role": "user", "content": "Ich brauche VPN-Zugang und hätte außerdem eine Frage zur Urlaubsregelung."}],
+        "messages": [{"role": "user", "content": "Ich brauche VPN-Zugang, kannst du das einrichten?"}],
         "session_id": session_id,
         "current_task": None,
         "active_agent": "",
         "transparency_level": "medium",
         "control_level": "high",
         "check_target": "initial_request",
+        "subtasks": [],
+        "subtask_index": 0,
         "pruefer_verdict": None,
         "pruefer_issues": [],
         "correction_count": 0,
