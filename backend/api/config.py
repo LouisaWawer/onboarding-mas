@@ -36,7 +36,13 @@ APP_DB_PATH = os.getenv("APP_DB_PATH", str(BACKEND_DIR / "app_meta.sqlite"))
 # einer Wahlmöglichkeit pro Request. Über Env-Var änderbar, falls die
 # konkrete Konfiguration noch nicht feststeht.
 DEFAULT_TRANSPARENCY_LEVEL = os.getenv("DEFAULT_TRANSPARENCY_LEVEL", "medium")
-DEFAULT_CONTROL_LEVEL = os.getenv("DEFAULT_CONTROL_LEVEL", "high")
+# "medium": nur kritische Aktionen (is_critical, siehe criticality_policy.py)
+# werden bestätigt, siehe _human_review_needs_interrupt() in agent/graph.py.
+# Bewusst NICHT "high" - dort würde JEDE Aktion bestätigt, auch der
+# Kalendereintrag, und der Kritikalitätskontrast zwischen einer kritischen
+# (VPN-Ticket) und einer unkritischen (Kalendertermin) Anfrage im Testskript
+# verschwände.
+DEFAULT_CONTROL_LEVEL = os.getenv("DEFAULT_CONTROL_LEVEL", "medium")
 
 # Gebauter Vite-Output von sandbox-app, siehe Auftrag Punkt 9.
 SANDBOX_DIST_DIR = Path(
