@@ -77,9 +77,9 @@ Feste Reihenfolge statt Randomisierung – der Lerneffekt über den Verlauf ist 
 |---|---|---|
 | 0 – Briefing | "Erster Arbeitstag"-Vignette (angelehnt an Basis-Szenario der quantitativen Studie), Hinweis auf simulierte Umgebung, Think-Aloud-Anleitung | – |
 | 1 | Willkommensnachricht des Agenten (DM), erwähnt beiläufig den Team-Kanal | inzidentelle Entdeckung von Kanal/Gruppenchat |
-| 2 | VPN-Zugang einrichten | K-Unterschied, hohe Kritikalität |
-| 3 | Meeting im Kalender eintragen | K-Unterschied, niedrigere Kritikalität (Kontrast zu Schritt 2) |
-| 4 | Zwei organisatorische Fragen stellen – eine im Zuständigkeitsbereich des Agenten, eine bewusst außerhalb (z.B. Gehaltsfrage) | T-Unterschied bei Mehrdeutigkeit + Eskalations-Zweig (statt eigener Aufgabe) |
+| 2 | VPN-Zugang einrichten | hohe Kritikalität: Verhalten der konfigurierten Kontrollstufe |
+| 3 | Meeting im Kalender eintragen | niedrigere Kritikalität als Kontrast (zu Schritt 2): Verhalten der konfigurierten Kontrollstufe |
+| 4 | Zwei organisatorische Fragen stellen – eine im Zuständigkeitsbereich des Agenten, eine bewusst außerhalb (z.B. Gehaltsfrage) | Mehrdeutigkeit: Verhalten der konfigurierten Transparenzstufe + Eskalations-Zweig (statt eigener Aufgabe) |
 | 5 | Mehrstufigen Hintergrundprozess peripher verfolgen (Statuspunkt) | Calm-Tech-Prinzip |
 | 6 | Fehlerhaften Agentenvorschlag korrigieren | Override/Kontrolleingriff |
 

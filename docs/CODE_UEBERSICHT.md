@@ -28,7 +28,7 @@ Barrel-Export aller obigen Komponenten (+ ihrer Prop-/Typ-Exports) in `src/compo
 |---|---|---|---|
 | `Chat/Chat.tsx` | Konversationsliste (Assistent/Kanäle/DMs, ein-/ausklappbare Sektionen) + Nachrichtenverlauf + Composer (Formulierungsvorschlag-Button ist reiner Platzhalter-Button, keine Funktion) | `activeId`, `collapsed`, `draft` | `useChatState`, `useReportBadge('chat', ...)` |
 | `Tickets/Tickets.tsx` | Ticket-Tabelle, kein Formular (neue Anfragen laufen laut Szenario-Design über Lumi im Chat) | `tickets`, `selectedId` | `useReportBadge('tickets', ...)` |
-| `Kalender/Kalender.tsx` | Wochenansicht Mo-Fr, echte Date-Arithmetik; "Neue Besprechung" schickt Anfrage an Lumi statt ein Formular zu öffnen | `weekStart`, `appointments` | `useSendToLumi` |
+| `Kalender/Kalender.tsx` | Wochenansicht Mo-Fr, echte Date-Arithmetik NUR für die Wochennavigation (Termine selbst sind nicht datumsverankert, nur über `day`/`hour` platziert, siehe `Setup_Dokumentation.md` Abschnitt 3); "Neue Besprechung" schickt Anfrage an Lumi statt ein Formular zu öffnen | `weekStart`, `appointments` | `useSendToLumi` |
 | `KnowledgeHub/KnowledgeHub.tsx` | Baumnavigation + Landing/gefilterte Ansicht/Detailansicht; Sidebar-Klick auf "Knowledge Hub" resettet immer auf Landing | `view`, `selectedTreeId`, `activeArticleId`, `readIds`; Prop `resetToken` | `useReportBadge('hub', ...)` |
 | `Intranet/Intranet.tsx` | Tabs Ankündigungen/Verzeichnis/Neu im Team/Über uns; nur Ankündigungen-Tab hat Figma-Vorlage, Rest aus `Fiktive_Firma_und_Kollegen.md` bzw. ehrlicher Minimalzustand | `activeTab` | `useReportBadge('intranet', ...)`, `useSendToLumi` |
 
@@ -57,6 +57,8 @@ Beide als React Context + Provider, in `App.tsx` um den gesamten `AppContent`-Ba
 ## Verifikationsdatum
 
 09.09.2026 - gegen den tatsächlichen Inhalt von `src/components/*.tsx` und `src/screens/**/*.tsx` gelesen (nicht nur aus Chat-Verlauf rekonstruiert wie die Vorversion dieser Datei).
+
+**Stichprobenartig erneut geprüft am 13.09.2026** (im Zuge eines reinen Backend-/Doku-Auftrags, bei dem viel Backend-seitig dazukam, siehe `Setup_Dokumentation.md` Abschnitt 7/8): `Kalender.tsx`/`kalenderData.ts`, `KnowledgeHub.tsx`, `Intranet.tsx` sowie – im Zuge der Kalender-Normalisierung wenige Tage zuvor – `Tickets.tsx`, `Chat.tsx`, `ChatState.tsx` und `AppNotifications.tsx` gelesen, keine Abweichung zur Tabelle oben gefunden. Keine vollständige Neu-Verifikation aller Komponenten – da in der Zwischenzeit an keiner Sandbox-App-Datei geschrieben wurde (nur `backend/` und `docs/`), ist ein Abweichen unwahrscheinlich, aber nicht für jede einzelne Zeile neu belegt – [zu verifizieren] für die nicht erneut gelesenen Komponenten (`Topbar`, `Sidebar`, `SidebarIcon`, `Avatar`, `StatusIndicator`, `UserWithStatus`, `ChatListItem`, `MessageBox`, `Tree`, `PreviewBlock`, `Filter`, `PushButton`, `TaskStatus`).
 
 ## Prompt, um diese Datei zu aktualisieren
 
