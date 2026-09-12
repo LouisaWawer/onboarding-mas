@@ -14,3 +14,9 @@ src-tauri/target/
 
 # macOS
 .DS_Store
+
+# Generierte Laufzeit-Dateien (enthalten ab der Studie echte Konversationsinhalte)
+backend/*.jsonl
+backend/*.sqlite
+backend/*.sqlite-wal
+backend/*.sqlite-shm

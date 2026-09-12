@@ -45,8 +45,9 @@ Version: 0.1
 
 3. Funktionale Anforderungen
    ID  | Anforderung                                          | Prinzip        | Priorität
-   F01 | Agent erklärt vor jeder Aktion Grund und nächsten     | Transparenz    | Muss
-       | Schritt                                                              |
+   F01 | Agent erklärt vor kritischen Aktionen Grund und       | Transparenz    | Muss
+       | nächsten Schritt, entsprechend dem konfigurierten                    |
+       | Transparenzgrad                                                      |
    F02 | Nutzer:in kann jede kritische Aktion bestätigen,       | Situative      | Muss
        | anpassen oder ablehnen                                | Kontrolle      |
    F03 | Statuspunkt zeigt Systemzustand über Form/Farbe an,   | Calm Tech      | Muss
@@ -62,10 +63,14 @@ Version: 0.1
    - Keine produktionsreife Sicherheits-/Skalierungsarchitektur
 
 5. Erfolgskriterien für die Evaluation
-   - Testpersonen können nach Interaktion korrekte Aussagen über
-     Systemverhalten treffen (mentales Modell, RQ1)
-   - Selbstberichtete wahrgenommene Sicherheit höher in Varianten mit
-     hoher Transparenz/Kontrolle vs. reduzierter Variante
+   - Testpersonen können nach der Interaktion korrekte Aussagen
+     über das Systemverhalten treffen (mentales Modell, RQ1)
+   - Testpersonen können benennen, an welchen Stellen sie eingreifen
+     konnten und warum das System gehandelt hat (erlebte
+     Transparenz und Kontrolle, RQ2/RQ3)
+   - Die Interaktionsprotokolle zeigen, ob die gewählte
+     Konfiguration dort bestätigt hat, wo es die Kritikalitätsregel
+     vorsieht
 ```
 
 ---
@@ -178,7 +183,7 @@ Konsequenzen
 
 ```
 ADR-004: Guardrail-Strategie für den eingebetteten Agenten
-Status: entschieden (Umsetzung im Code noch offen)
+Status: entschieden (Ebenen 1-3 im Code umgesetzt, Pilot-Test/Red-Teaming offen)
 
 Kontext
   Der Agent basiert auf einem echten LLM, ist also nicht vollständig

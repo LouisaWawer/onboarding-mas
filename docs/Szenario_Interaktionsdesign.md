@@ -48,14 +48,14 @@ Eskalation/Übergabe an eine echte Person ist ein zusätzlicher Zweig im LangGra
 
 ## 5. Finale Aufgabentabelle für die Nutzerstudie
 
-| # | Aufgabe | Abgedeckte Fähigkeit | Trigger | Oberfläche(n) |
-|---|---|---|---|---|
-| 1 | VPN-Zugang einrichten | Zugänge (aus Vignetten-Basisszenario) | K-Unterschied bei hoher Kritikalität | DM oder Statuspunkt-Panel |
-| 2 | Team-Meeting im Kalender eintragen | Kalender (aus Vignetten-Basisszenario) | K-Unterschied bei niedrigerer Kritikalität (Kontrast zu Aufgabe 1) | DM oder Statuspunkt-Panel |
-| 3 | Offene organisatorische Frage stellen | Organisatorische Fragen (aus Vignetten-Basisszenario) | T-Unterschied bei Mehrdeutigkeit | DM oder Statuspunkt-Panel |
-| 4 | Mehrstufigen Prozess peripher verfolgen | – | Calm-Tech/Statuspunkt, kein T/K-Trigger | Statuspunkt (peripher) |
-| 5 | Fehlerhaften Agentenvorschlag korrigieren | – | Override/Eingriffsmöglichkeit | DM oder Screen-Viewer |
-| 6 (optional) | Screen-Viewer aktiv nutzen während einer Aufgabe | – | Kontextuelle Unterstützung | Screen-Viewer-Overlay |
+| # | Aufgabe | Abgedeckte Fähigkeit | Trigger | Oberfläche(n) | Schritt (Abschnitt 8) |
+|---|---|---|---|---|---|
+| 1 | VPN-Zugang einrichten | Zugänge (aus Vignetten-Basisszenario) | hohe Kritikalität: Verhalten der konfigurierten Kontrollstufe | DM oder Statuspunkt-Panel | 2 |
+| 2 | Team-Meeting im Kalender eintragen | Kalender (aus Vignetten-Basisszenario) | niedrigere Kritikalität als Kontrast (zu Aufgabe 1): Verhalten der konfigurierten Kontrollstufe | DM oder Statuspunkt-Panel | 3 |
+| 3 | Offene organisatorische Frage stellen | Organisatorische Fragen (aus Vignetten-Basisszenario) | Mehrdeutigkeit: Verhalten der konfigurierten Transparenzstufe | DM oder Statuspunkt-Panel | 4 |
+| 4 | Mehrstufigen Prozess peripher verfolgen | – | Calm-Tech/Statuspunkt, kein T/K-Trigger | Statuspunkt (peripher) | 5 |
+| 5 | Fehlerhaften Agentenvorschlag korrigieren | – | Override/Eingriffsmöglichkeit | DM oder Screen-Viewer | 6 |
+| 6 (optional) | Screen-Viewer aktiv nutzen während einer Aufgabe | – | Kontextuelle Unterstützung | Screen-Viewer-Overlay | durchgängig verfügbar (Schritt 2–6), kein eigener Schritt |
 
 ## 6. Schreibunterstützung im Chat-Composer
 
@@ -63,7 +63,7 @@ Zusätzliche Agenten-Fähigkeit, kein eigener Modus: Beim Verfassen von Nachrich
 
 **Technisch**: kein separates System, sondern ein zusätzliches Tool desselben Agenten – Klick sendet Empfänger-Kontext ans Backend, Vorschlag wird zum Übernehmen/Bearbeiten/Verwerfen angezeigt.
 
-**Einordnung im Testskript**: kein eigener Aufgabenblock, sondern optional während bestehender Aufgaben (v.a. Aufgabe 3) verfügbar – Nutzung wird beiläufig beobachtet/geloggt.
+**Einordnung im Testskript**: kein eigener Aufgabenblock, sondern optional während bestehender Aufgaben (v.a. Schritt 4, organisatorische Fragen) verfügbar – Nutzung wird beiläufig beobachtet/geloggt.
 
 ## 7. Studiendesign der Prototyp-Nutzerstudie
 
@@ -92,7 +92,7 @@ Screen-Viewer-Overlay und Schreibunterstützung sind keine eigenen Schritte, son
 - **Abschließendes semi-strukturiertes Interview**: mentale Modelle (RQ1), Eindruck von Transparenz/Kontrolle in echter Nutzung (RQ2/RQ3), Vergleich zum Alltagsverständnis von Apps/Kolleg:innen
 - Anker-Items aus der quantitativen Studie (z.B. "Ich vertraue darauf, dass das System in meinem Sinne handelt") können als Gesprächsimpulse im Interview dienen, nicht als Skalen-Score – dient der Trianguliation, nicht dem statistischen Vergleich
 
-## 11. Knowledge-Hub-Suche: Inhaltsabruf statt Konversation
+## 10. Knowledge-Hub-Suche: Inhaltsabruf statt Konversation
 
 Die "Frag Lumi"-Suche im Knowledge Hub ist bewusst **kein** Mini-Chat und löst keine Konversation aus:
 
@@ -101,7 +101,7 @@ Die "Frag Lumi"-Suche im Knowledge Hub ist bewusst **kein** Mini-Chat und löst 
 
 Technisch weiterhin **eine** zugrundeliegende Konversation/ein State (wie bei DM und Statuspunkt-Panel), aber die Knowledge-Hub-Suche selbst zeigt keine Chat-Bubble – nur der Status des peripheren Punkts ändert sich als Brücke zur eigentlichen Konversation.
 
-## 12. Offene Punkte
+## 11. Offene Punkte
 
 - [ ] Konkrete Formulierungen für Chat-Nachrichten (HR/IT/Buddy/Agent) – nach Interviewauswertung final
 - [ ] Wortlaut der Eskalations-Nachricht

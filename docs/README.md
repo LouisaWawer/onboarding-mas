@@ -6,11 +6,11 @@ Zentraler Einstiegspunkt für alle Dokumente zum Prototyp. Diese Datei erklärt,
 
 **Design (Figma)**: Alle fünf Sandbox-Screens (Chat, Intranet, Knowledge Hub, Tickets, Kalender) sind entworfen, inklusive Komponenten-Bibliothek (Sidebar-Icons, Avatar/Status, Chat-Elemente, Tree-Navigation, Tabellen). Farbsystem, Kolleg:innen-Cast und Inhalte sind zwischen Figma und Dokumentation synchronisiert.
 
-**Code (sandbox-app)**: Wird aktuell mit Claude Code umgesetzt, auf Basis der Figma-Datei. Sidebar, Chat, Tickets-Tabelle, Avatar/Status-System stehen bereits mit funktionierendem Layout; weitere Screens folgen iterativ. Technische Muster (Layout, Icon-Handling) sind in `CODE_UEBERSICHT.md` festgehalten.
+**Code (sandbox-app)**: Mit Claude Code umgesetzt, auf Basis der Figma-Datei. Sidebar, Chat, Tickets-Tabelle, Avatar/Status-System mit funktionierendem Layout stehen.
 
-**Backend (LangGraph/Agent)**: Bewusst zurückgestellt bis nach der Interviewauswertung – noch nicht begonnen.
+**Backend (LangGraph/Agent)**: Deutlich weiter als ursprünglich geplant – nicht mehr bis nach der Interviewauswertung zurückgestellt. Funktionierender, mehrfach getesteter Graph: Supervisor (Zerlegung + Routing per Tool Use), Infrastructure-Agent, Info-Agent (mit Dokumentensuche + Quellenangabe), Prüfer (mit Entwurfs-/Freigabe-Mechanismus), Kontext-Check, `interrupt()`-basierte Bestätigung, Eskalation mit echten Kolleg:innen-Verweisen. Details siehe `Setup_Dokumentation.md`, Abschnitt 2. Noch offen: `scheduling_agent`, FastAPI-Anbindung an die echte Sandbox-UI, finaler Test der Korrekturschleife (Test-Hook noch im Code).
 
-**Tauri-Shell (Statuspunkt + Interrupt-Overlay)**: Noch nicht begonnen, separates System von der Sandbox-App.
+**Tauri-Shell**: Projekt-Grundgerüst existiert und ist end-to-end mit dem Backend verbunden (bestätigter Ping-Test, siehe `Setup_Dokumentation.md` Abschnitt 4/5). Die eigentlichen Features – **Statuspunkt (Zustandswechsel) und Interrupt-Overlay** – sind noch nicht begonnen, separates System von der Sandbox-App.
 
 **Nutzerstudie**: Szenario, Aufgaben und Erhebungsmethodik sind konzipiert, Testskript im Detail steht noch aus.
 
@@ -51,8 +51,9 @@ Diese Dokumentation hat sich als anfällig dafür erwiesen, vom tatsächlichen F
 ## Was als Nächstes ansteht
 
 Siehe „Offene nächste Schritte" in `Setup_Dokumentation.md` für die vollständige Liste. Größte offene Blöcke:
-1. Verbleibende Sandbox-Screens fertigstellen (Code)
-2. LangGraph-Backend nach Interviewauswertung
-3. Tauri-Shell (Statuspunkt, Interrupt-Overlay)
-4. Testskript final ausformulieren
-5. Pilot-Test / Red-Teaming vor der eigentlichen Studie
+1. Backend fertig testen (Korrekturschleife, Kontext-Check "geändert"-Fall), Test-Hook entfernen
+2. `scheduling_agent` ergänzen, FastAPI-Anbindung an die echte Sandbox-UI
+3. Verbleibende Sandbox-Screens fertigstellen (Code)
+4. Tauri-Shell (Statuspunkt, Interrupt-Overlay)
+5. Testskript final ausformulieren
+6. Pilot-Test / Red-Teaming vor der eigentlichen Studie
