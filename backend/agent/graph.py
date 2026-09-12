@@ -21,6 +21,8 @@ Ablauf:
                                      updated_query -> execute_action | END
 """
 
+import datetime
+
 from langgraph.graph import StateGraph, END
 from langgraph.types import interrupt, Command
 from anthropic import Anthropic
@@ -113,9 +115,66 @@ PROPOSE_TICKET_TOOL = {
 }
 
 
+# 0=Montag ... 4=Freitag - deckungsgleich mit Appointment.day in
+# kalenderData.ts (Frontend). Genutzt sowohl im Tool-Schema unten als auch
+# in _execution_confirmation_text(), damit die Bestätigungsnachricht den
+# tatsächlich eingetragenen (ggf. gerundeten) Wochentag nennt, statt ihn
+# stillschweigend zu verschieben (siehe Bericht an die Nutzerin).
+WEEKDAY_NAMES = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag"]
+
+def _sandbox_today_weekday_name() -> str | None:
+    """Heutiger Wochentag zur LAUFZEIT ermittelt (datetime.date.today()),
+    NICHT fest hinterlegt - siehe Bericht an die Nutzerin: ein fester
+    Tag lag irgendwann in der Vergangenheit relativ zum tatsächlichen
+    Testzeitpunkt, und "morgen" hätte gegen ein fiktives Datum gerechnet.
+    None am Wochenende (Sa/So) - der Mo-Fr-Kalender hat dann kein "heute".
+
+    Bewusst NUR der Wochentags-NAME, kein Kalenderdatum: ein konkretes
+    Datum ("heute ist der 23.09.2026") hat das Modell in einem echten
+    Testlauf dazu verleitet, Kalenderdaten zu VERGLEICHEN ("Dienstag,
+    22.09. liegt vor dem 23.09., also schon vorbei, muss übernächste
+    Woche gemeint sein") statt den genannten Wochentag einfach auf das
+    Sandbox-Raster abzubilden - das Sandbox-"Vorher/Nachher" existiert
+    nicht, es gibt nur EINE Woche, jeder genannte Wochentag darin ist
+    gültig, unabhängig vom heutigen Wochentag."""
+    weekday = datetime.date.today().weekday()  # 0=Montag ... 6=Sonntag
+    if weekday > 4:
+        return None
+    return WEEKDAY_NAMES[weekday]
+
+
+def _sandbox_today_instruction() -> str:
+    """Textbaustein für den System-Prompt (draft response UND Extraktion,
+    siehe scheduling_agent_node) - siehe _sandbox_today_weekday_name()."""
+    today_name = _sandbox_today_weekday_name()
+    if today_name is not None:
+        return (
+            f"Heutiger Wochentag in dieser Sandbox-Umgebung: {today_name}. Nutze "
+            f"NUR den Wochentagsnamen, um relative Zeitangaben ('morgen', "
+            f"'übermorgen') aufzulösen. WICHTIG: Vergleiche dabei KEINE "
+            f"Kalenderdaten und urteile NICHT, ob ein genannter Wochentag 'schon "
+            f"vorbei' ist - jeder genannte Wochentag (Montag bis Freitag) bezieht "
+            f"sich auf DIESE eine angezeigte Woche, unabhängig davon, ob er vor "
+            f"oder nach dem heutigen Wochentag liegt."
+        )
+    return (
+        "Heute ist Wochenende - der Sandbox-Kalender kennt nur Werktage (Montag "
+        "bis Freitag) und hat deshalb gerade kein 'heute'. Bei relativen "
+        "Zeitangaben ('heute', 'morgen', 'übermorgen') kannst du das gerade "
+        "nicht auflösen - erkläre das der Nutzer:in ehrlich (Wochenende, kein "
+        "'heute' im Kalender), statt zu raten. Nennt die Nutzer:in stattdessen "
+        "einen konkreten Wochentag (Montag bis Freitag), trage das ganz normal ein."
+    )
+
+
 PROPOSE_CALENDAR_EVENT_TOOL = {
     "name": "propose_calendar_event",
-    "description": "Entscheidet, ob für die aktuelle Anfrage ein Kalendertermin vorgeschlagen werden soll.",
+    "description": (
+        "Entscheidet, ob für die aktuelle Anfrage ein Kalendertermin vorgeschlagen "
+        "werden soll, und normalisiert Wochentag/Uhrzeit auf das Raster der Sandbox "
+        "(nur die aktuelle Woche, Montag bis Freitag, volle Stunden 8-16 Uhr - siehe "
+        "within_current_week)."
+    ),
     "input_schema": {
         "type": "object",
         "properties": {
@@ -123,9 +182,42 @@ PROPOSE_CALENDAR_EVENT_TOOL = {
                 "type": "boolean",
                 "description": "Ob überhaupt ein Termin für diese Anfrage nötig ist",
             },
-            "date": {"type": "string", "description": "Datum des Termins, wie von der Nutzer:in genannt"},
-            "time": {"type": "string", "description": "Uhrzeit des Termins, wie von der Nutzer:in genannt"},
+            "within_current_week": {
+                "type": "boolean",
+                "description": (
+                    "Ob sich der genannte Zeitpunkt auf einen Werktag (Montag bis "
+                    "Freitag) der AKTUELLEN Woche bezieht. false, wenn ein anderer "
+                    "Zeitraum gemeint ist (z.B. 'nächste Woche', 'in drei Wochen', "
+                    "'nächsten Monat') oder ein Samstag/Sonntag - der Sandbox-Kalender "
+                    "zeigt in diesem Prototyp nur eine einzelne Woche. Bei false "
+                    "werden weekday/hour nicht verwendet, needed kann trotzdem true sein."
+                ),
+            },
+            "weekday": {
+                "type": "integer",
+                "enum": [0, 1, 2, 3, 4],
+                "description": (
+                    "Wochentag als Index: 0=Montag, 1=Dienstag, 2=Mittwoch, "
+                    "3=Donnerstag, 4=Freitag. Nur relevant, wenn within_current_week "
+                    "true ist. Beispiel: 'Donnerstag' -> 3."
+                ),
+            },
+            "hour": {
+                "type": "integer",
+                "enum": [8, 9, 10, 11, 12, 13, 14, 15, 16],
+                "description": (
+                    "Uhrzeit als volle Stunde im 24-Stunden-Format, auf die "
+                    "nächstgelegene darstellbare Stunde gerundet (der Sandbox-Kalender "
+                    "kennt keine Minuten). Beispiele: '14:00' -> 14, 'halb drei "
+                    "nachmittags' (14:30) -> 14 oder 15 (nächstgelegene volle Stunde), "
+                    "'morgens um 9' -> 9. Nur relevant, wenn within_current_week true ist."
+                ),
+            },
             "title": {"type": "string", "description": "Kurzer Titel des Termins"},
+            "location": {
+                "type": "string",
+                "description": "Ort des Termins, falls genannt - sonst 'Online' als sinnvoller Standardwert",
+            },
             "organizer": {
                 "type": "string",
                 "description": "Organisator:in des Termins - 'Lumi', falls nicht anders genannt",
@@ -425,6 +517,24 @@ def scheduling_agent_node(state: OnboardingState) -> OnboardingState:
             + ". Bitte korrigiere das in deiner nächsten Antwort."
         )
 
+    # Kalender-Grenzen des Prototyps: müssen VOR dem Antwort-Entwurf bekannt
+    # sein, nicht erst bei der strukturierten Extraktion danach - nur der
+    # Entwurf erzeugt den natürlichsprachlichen Text, den die Nutzer:in
+    # sieht (siehe Bericht an die Nutzerin: die Erklärung "nur diese Woche"
+    # gehört in den Entwurf, nicht in die Extraktion, die nur noch
+    # strukturiert erfasst, ob/wie ein Termin möglich ist).
+    system_prompt += (
+        f"\n\nWICHTIG ZUM KALENDER: {_sandbox_today_instruction()} Der Kalender "
+        f"hier zeigt außerdem bewusst nur diese eine Woche (Montag bis Freitag). "
+        f"Bezieht sich die Anfrage auf einen anderen Zeitraum (eine andere "
+        f"Woche, 'nächsten Monat', 'in X Wochen') oder einen Samstag/Sonntag, "
+        f"erkläre das der Nutzer:in kurz und freundlich als bewusste Grenze "
+        f"dieses Prototyps - NICHT als Störung oder Fehler (z.B. so: \"Der "
+        f"Kalender hier zeigt aktuell nur diese Woche - für [Zeitpunkt] kann "
+        f"ich dir deshalb noch keinen Termin eintragen.\"). Biete stattdessen "
+        f"an, einen Termin innerhalb dieser Woche einzutragen, falls das passt."
+    )
+
     # 1. Antwort-Entwurf generieren (siehe infrastructure_agent_node für die
     # Begründung von _messages_ending_with_user hier).
     call_messages = _messages_ending_with_user(
@@ -442,7 +552,10 @@ def scheduling_agent_node(state: OnboardingState) -> OnboardingState:
     state["draft_response"] = response.content[0].text
 
     # 2. Strukturierte Aktions-Extraktion per Tool Use - analog
-    # infrastructure_agent_node, nur mit dem Kalender-Tool-Schema.
+    # infrastructure_agent_node, nur mit dem Kalender-Tool-Schema. Braucht
+    # dieselbe Datums-Referenz wie der Entwurf oben, sonst könnte die
+    # Extraktion zu einer anderen within_current_week-Einschätzung kommen
+    # als der bereits formulierte Entwurfstext.
     extraction_messages = call_messages + [
         {"role": "assistant", "content": state["draft_response"]},
         {"role": "user", "content": "Bewerte anhand des bisherigen Gesprächs: ist ein Kalendertermin nötig?"},
@@ -452,7 +565,7 @@ def scheduling_agent_node(state: OnboardingState) -> OnboardingState:
         max_tokens=200,
         system=(
             "Entscheide anhand der Konversation, ob ein Kalendertermin für die "
-            "aktuelle Anfrage vorgeschlagen werden soll."
+            f"aktuelle Anfrage vorgeschlagen werden soll. {_sandbox_today_instruction()}"
         ),
         messages=extraction_messages,
         tools=[PROPOSE_CALENDAR_EVENT_TOOL],
@@ -460,13 +573,14 @@ def scheduling_agent_node(state: OnboardingState) -> OnboardingState:
     )
     action_data = _extract_tool_input(extraction_response, "propose_calendar_event")
 
-    if action_data.get("needed"):
+    if action_data.get("needed") and action_data.get("within_current_week"):
         state["pending_action"] = {
             "tool": "add_calendar_event",
             "args": {
-                "date": action_data.get("date", ""),
-                "time": action_data.get("time", ""),
+                "weekday": action_data.get("weekday"),
+                "hour": action_data.get("hour"),
                 "title": action_data.get("title", "Termin"),
+                "location": action_data.get("location", "Online"),
                 "organizer": action_data.get("organizer", "Lumi"),
             },
             "reason": action_data.get("reason", ""),
@@ -477,6 +591,9 @@ def scheduling_agent_node(state: OnboardingState) -> OnboardingState:
             "is_critical": is_tool_critical("add_calendar_event"),
         }
     else:
+        # needed=True aber within_current_week=False landet hier ebenfalls:
+        # kein Eintrag ohne verlässlichen weekday/hour, die Erklärung dazu
+        # steht bereits im Entwurfstext oben (draft_response).
         state["pending_action"] = None
 
     return state
@@ -867,6 +984,17 @@ def _execution_confirmation_text(action: dict) -> str:
 
     if tool == "add_calendar_event":
         title = args.get("title")
+        weekday = args.get("weekday")
+        hour = args.get("hour")
+        # Nennt den TATSÄCHLICH eingetragenen (ggf. gerundeten) Zeitpunkt
+        # explizit - siehe Bericht an die Nutzerin: eine Rundung (z.B.
+        # "halb drei" -> 14 oder 15 Uhr) darf nicht stillschweigend
+        # verschoben werden, die Person soll sehen, was wirklich passiert ist.
+        time_phrase = None
+        if isinstance(weekday, int) and 0 <= weekday < len(WEEKDAY_NAMES) and isinstance(hour, int):
+            time_phrase = f"{WEEKDAY_NAMES[weekday]} um {hour:02d}:00 Uhr"
+        if title and time_phrase:
+            return f"Erledigt – „{title}“ ist am {time_phrase} im Kalender eingetragen."
         if title:
             return f"Erledigt – „{title}“ ist im Kalender eingetragen."
         return "Erledigt – der Termin ist eingetragen."

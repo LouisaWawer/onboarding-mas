@@ -26,9 +26,17 @@ def create_ticket(sandbox_state: dict, department: str, subject: str) -> dict:
     return ticket
 
 
-def add_calendar_event(sandbox_state: dict, date: str, time: str, title: str, organizer: str) -> dict:
-    """Trägt einen Termin in den Sandbox-Kalender ein."""
-    event = {"date": date, "time": time, "title": title, "organizer": organizer}
+def add_calendar_event(
+    sandbox_state: dict, weekday: int, hour: int, title: str, location: str, organizer: str
+) -> dict:
+    """Trägt einen Termin in den Sandbox-Kalender ein.
+
+    weekday/hour statt Freitext (date/time): normalisierte Werte, wie sie
+    PROPOSE_CALENDAR_EVENT_TOOL (graph.py) vom Modell verlangt - 0=Montag
+    ... 4=Freitag, volle Stunde 8-16 - deckungsgleich mit Appointment.day/
+    .hour in kalenderData.ts (Frontend-Kalenderraster). Keine Parsing-Schicht
+    hier oder im Frontend nötig, siehe Bericht an die Nutzerin."""
+    event = {"weekday": weekday, "hour": hour, "title": title, "location": location, "organizer": organizer}
     sandbox_state.setdefault("calendar_events", []).append(event)
     return event
 
