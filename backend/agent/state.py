@@ -52,3 +52,10 @@ class OnboardingState(TypedDict):
     dot_status: Literal["idle", "active", "waiting"]
     sandbox_state: dict
     channel: Literal["dm", "status_panel"]
+
+    # Rein informativ für den Begründungsblock ("rationale") der API-Schicht
+    # (backend/api/rationale.py) - von KEINEM Knoten/Routing hier im Graphen
+    # gelesen, nur geschrieben.
+    last_search_results: Optional[list[dict]]  # info_agent_node: Rückgabe von search_documents
+    last_colleague: Optional[dict]             # escalate_node: Rückgabe von find_colleague_for_topic
+    last_executed_action: Optional[PendingAction]  # execute_action_node: die gerade ausgeführte Aktion (pending_action ist zu diesem Zeitpunkt schon auf None gesetzt)

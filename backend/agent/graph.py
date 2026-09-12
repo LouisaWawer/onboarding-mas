@@ -1,17 +1,24 @@
 """
-Graph-Struktur, Version 2: Supervisor + Prüfer um den bestehenden
-Infrastructure-Pfad herum (bewusst NICHT alle vier Tool-Agenten gleichzeitig -
-siehe Architektur-Gespräch: erst den Kreislauf an einem Beispiel validieren).
+Graph-Struktur: Supervisor + Prüfer um drei Sub-Agenten herum
+(infrastructure_agent, info_agent, scheduling_agent) - derselbe
+Prüfer-/Kontext-Check-/Bestätigungs-Kreislauf für alle drei, siehe
+Architektur-Gespräch: erst den Kreislauf an EINEM Beispiel validiert
+(infrastructure_agent), dann auf info_agent und scheduling_agent
+übertragen, statt alle gleichzeitig neu zu entwerfen.
 
 Ablauf:
-  supervisor --[ok]--> infrastructure_agent --> pruefer
+  supervisor --[ok]--> {infrastructure_agent|info_agent|scheduling_agent} --> pruefer
                                                     |
                           [beanstandung, correction_count <= MAX] -> zurück zu supervisor
                           [beanstandung, correction_count > MAX]  -> escalate
-                          [freigabe] -> context_check
-                                            |
-                          [unverändert] -> human_review -> execute_action
-                          [geändert]    -> updated_query -> execute_action | END
+                          [freigabe] -> context_check -> announce_confirmation
+                                                              |
+                          [unverändert] -> human_review -> context_recheck (G13, 2. Vergleich,
+                          [geändert]    -> updated_query -+  NACH der 1. Bestätigung)
+                                                           |
+                                     context_recheck: [unverändert] -> execute_action
+                                                       [geändert]    -> updated_query
+                                     updated_query -> execute_action | END
 """
 
 from langgraph.graph import StateGraph, END
@@ -26,6 +33,7 @@ load_dotenv()  # liest backend/.env ein - ohne diesen Aufruf bleibt
 from .state import OnboardingState
 from .tools import AVAILABLE_TOOLS
 from .colleague_data import find_colleague_for_topic
+from .criticality_policy import is_tool_critical
 from .prompts_config import build_system_prompt, ESCALATION_PROMPT
 from .logging_store import log_interaction
 
@@ -66,11 +74,12 @@ DECOMPOSE_TOOL = {
                         },
                         "category": {
                             "type": "string",
-                            "enum": ["infrastructure", "info", "other"],
+                            "enum": ["infrastructure", "info", "scheduling", "other"],
                             "description": (
                                 "'infrastructure' = VPN/Zugänge/Hardware/Software, "
                                 "'info' = allgemeine organisatorische Fragen (Urlaub, "
                                 "Richtlinien, Onboarding-Themen), "
+                                "'scheduling' = Kalendertermine/Besprechungen eintragen, "
                                 "'other' = alles andere, auch wenn unklar"
                             ),
                         },
@@ -98,9 +107,32 @@ PROPOSE_TICKET_TOOL = {
                 "type": "string",
                 "description": "Kurze, der Nutzer:in gezeigte Begründung, warum das Ticket nötig ist",
             },
-            "is_critical": {
+        },
+        "required": ["needed"],
+    },
+}
+
+
+PROPOSE_CALENDAR_EVENT_TOOL = {
+    "name": "propose_calendar_event",
+    "description": "Entscheidet, ob für die aktuelle Anfrage ein Kalendertermin vorgeschlagen werden soll.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "needed": {
                 "type": "boolean",
-                "description": "Ob dies eine kritische/sicherheitsrelevante Aktion ist (steuert L2/G3)",
+                "description": "Ob überhaupt ein Termin für diese Anfrage nötig ist",
+            },
+            "date": {"type": "string", "description": "Datum des Termins, wie von der Nutzer:in genannt"},
+            "time": {"type": "string", "description": "Uhrzeit des Termins, wie von der Nutzer:in genannt"},
+            "title": {"type": "string", "description": "Kurzer Titel des Termins"},
+            "organizer": {
+                "type": "string",
+                "description": "Organisator:in des Termins - 'Lumi', falls nicht anders genannt",
+            },
+            "reason": {
+                "type": "string",
+                "description": "Kurze, der Nutzer:in gezeigte Begründung, warum der Termin nötig ist",
             },
         },
         "required": ["needed"],
@@ -140,11 +172,11 @@ import json
 
 
 def _route_for_category(category: str) -> str:
-    """Zentrale Zuordnung Kategorie -> Graph-Knoten. Hier erweitern, sobald
-    scheduling_agent existiert."""
+    """Zentrale Zuordnung Kategorie -> Graph-Knoten."""
     ROUTING_MAP = {
         "infrastructure": "infrastructure_agent",
         "info": "info_agent",
+        "scheduling": "scheduling_agent",
     }
     return ROUTING_MAP.get(category, "escalate")
 
@@ -174,6 +206,12 @@ def supervisor_node(state: OnboardingState) -> OnboardingState:
 
     if check_target == "next_subtask":
         state["correction_count"] = 0  # pro Teilschritt zurücksetzen
+        # pending_action_snapshot ebenfalls pro Teilschritt zurücksetzen - sonst
+        # vergleicht context_recheck_node für DIESEN Teilschritt gegen den
+        # Snapshot eines VORHERIGEN Teilschritts (der z.B. schon ein Ticket
+        # angelegt und damit tickets_count erhöht hat) und meldet fälschlich
+        # "geändert", obwohl sich am Kontext DIESER Aktion nichts geändert hat.
+        state["pending_action_snapshot"] = None
         state["subtask_index"] += 1
         if state["subtask_index"] >= len(state["subtasks"]):
             state["active_agent"] = "__end__"
@@ -244,17 +282,6 @@ def infrastructure_agent_node(state: OnboardingState) -> OnboardingState:
             + ". Bitte korrigiere das in deiner nächsten Antwort."
         )
 
-    # --- TEMPORÄRER TEST-HOOK: erzwingt beim ERSTEN Versuch eine Floskel,
-    # um die Korrekturschleife gezielt auszulösen. Nach dem Test wieder
-    # entfernen (siehe Architektur-Gespräch, Punkt 1 - Korrekturschleife
-    # testen). ---
-    if state.get("correction_count", 0) == 0:
-        system_prompt += (
-            "\n\nTESTMODUS: Baue in diese eine Antwort irgendwo den Satz "
-            "'Das mache ich aus verschiedenen Gründen so.' ein."
-        )
-    # --- ENDE TEST-HOOK ---
-
     # 1. Antwort-Entwurf generieren. Nachrichtenliste absichern (siehe
     # _messages_ending_with_user) - bei einem zweiten/weiteren Teilschritt
     # ODER einem zweiten Korrekturversuch endet state["messages"] sonst mit
@@ -303,7 +330,8 @@ def infrastructure_agent_node(state: OnboardingState) -> OnboardingState:
             "args": {"department": "IT", "subject": action_data.get("subject", "IT-Anliegen")},
             "reason": action_data.get("reason", ""),
             "department": "IT",
-            "is_critical": action_data.get("is_critical", True),
+            # Feste Policy statt Modelleinschätzung, siehe criticality_policy.py.
+            "is_critical": is_tool_critical("create_ticket"),
         }
     else:
         state["pending_action"] = None
@@ -318,6 +346,9 @@ def infrastructure_agent_node(state: OnboardingState) -> OnboardingState:
 def info_agent_node(state: OnboardingState) -> OnboardingState:
     query = state["current_task"]
     results = AVAILABLE_TOOLS["search_documents"](state["sandbox_state"], query)
+    # Additiv fürs Rationale-Feld der API-Schicht (siehe backend/api/rationale.py) -
+    # rein informativ, wird von keinem anderen Knoten/Routing gelesen.
+    state["last_search_results"] = results
 
     system_prompt = build_system_prompt(state["transparency_level"])
     system_prompt += (
@@ -369,6 +400,85 @@ def info_agent_node(state: OnboardingState) -> OnboardingState:
     # info_agent schlägt i.d.R. keine Tool-Aktion vor - reine
     # Informationsantwort, kein Bestätigungsschritt nötig.
     state["pending_action"] = None
+    return state
+
+
+# ---------------------------------------------------------------------------
+# Scheduling-Agent: Kalendertermine, nach demselben Muster wie
+# infrastructure_agent_node (Entwurf + strukturierte Aktions-Extraktion).
+# ---------------------------------------------------------------------------
+
+def scheduling_agent_node(state: OnboardingState) -> OnboardingState:
+    system_prompt = build_system_prompt(state["transparency_level"])
+
+    system_prompt += (
+        f"\n\nWICHTIG: Kümmere dich in dieser Antwort AUSSCHLIESSLICH um "
+        f"folgenden Teilschritt: \"{state['current_task']}\". Falls die "
+        f"ursprüngliche Nachricht weitere Anliegen enthält, werden diese "
+        f"separat behandelt - gehe NICHT darauf ein, auch nicht kurz erwähnend."
+    )
+
+    if state.get("pruefer_issues"):
+        system_prompt += (
+            "\n\nDeine letzte Antwort wurde beanstandet: "
+            + "; ".join(state["pruefer_issues"])
+            + ". Bitte korrigiere das in deiner nächsten Antwort."
+        )
+
+    # 1. Antwort-Entwurf generieren (siehe infrastructure_agent_node für die
+    # Begründung von _messages_ending_with_user hier).
+    call_messages = _messages_ending_with_user(
+        state["messages"],
+        f"Bitte kümmere dich jetzt um diesen Teilschritt: {state['current_task']}",
+    )
+    response = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=300,
+        system=system_prompt,
+        messages=call_messages,
+    )
+    # NICHT direkt an state["messages"] anhängen - erst nach Prüfer-Freigabe
+    # (siehe pruefer_node, gleiches Prinzip wie bei den anderen Sub-Agenten).
+    state["draft_response"] = response.content[0].text
+
+    # 2. Strukturierte Aktions-Extraktion per Tool Use - analog
+    # infrastructure_agent_node, nur mit dem Kalender-Tool-Schema.
+    extraction_messages = call_messages + [
+        {"role": "assistant", "content": state["draft_response"]},
+        {"role": "user", "content": "Bewerte anhand des bisherigen Gesprächs: ist ein Kalendertermin nötig?"},
+    ]
+    extraction_response = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=200,
+        system=(
+            "Entscheide anhand der Konversation, ob ein Kalendertermin für die "
+            "aktuelle Anfrage vorgeschlagen werden soll."
+        ),
+        messages=extraction_messages,
+        tools=[PROPOSE_CALENDAR_EVENT_TOOL],
+        tool_choice={"type": "tool", "name": "propose_calendar_event"},
+    )
+    action_data = _extract_tool_input(extraction_response, "propose_calendar_event")
+
+    if action_data.get("needed"):
+        state["pending_action"] = {
+            "tool": "add_calendar_event",
+            "args": {
+                "date": action_data.get("date", ""),
+                "time": action_data.get("time", ""),
+                "title": action_data.get("title", "Termin"),
+                "organizer": action_data.get("organizer", "Lumi"),
+            },
+            "reason": action_data.get("reason", ""),
+            "department": None,
+            # Feste Policy statt Modelleinschätzung, siehe criticality_policy.py -
+            # Kalendertermine sind dort als nicht kritisch eingestuft, anders
+            # als create_ticket.
+            "is_critical": is_tool_critical("add_calendar_event"),
+        }
+    else:
+        state["pending_action"] = None
+
     return state
 
 
@@ -427,27 +537,41 @@ def _snapshot_relevant_state(sandbox_state: dict, pending_action: dict) -> dict:
 
 
 def context_check_node(state: OnboardingState) -> OnboardingState:
+    """Nimmt NUR den Baseline-Snapshot für den G13-Vergleich auf - der
+    eigentliche Vergleich (Snapshot bei Zustimmung vs. Zustand direkt vor
+    der Ausführung) passiert jetzt in context_recheck_node, NACH der
+    ersten Bestätigung in human_review_node.
+
+    Früher gab es hier auch schon einen Vergleich (elif previous !=
+    current). Der ist entfernt: previous (state["pending_action_snapshot"])
+    war an DIESER Stelle strukturell IMMER None, denn context_check_node
+    läuft synchron direkt nach der Prüfer-Freigabe, bevor irgendein
+    interrupt() überhaupt eine Wartezeit ermöglicht hätte, in der sich
+    etwas hätte ändern können - UND pending_action_snapshot wird pro
+    Teilschritt zurückgesetzt (siehe supervisor_node,
+    check_target=="next_subtask"). Ein "previous is not None" hier kam nur
+    durch einen Bug zustande (Snapshot eines VORHERIGEN Teilschritts blieb
+    stehen) - kein echter G13-Fall, siehe Bericht an die Nutzerin."""
     action = state.get("pending_action")
     if action is None:
         state["context_changed"] = False
+        # Kein Replay-Risiko hier (kein interrupt() in diesem Knoten) -
+        # läuft pro Checkpoint-Schritt genau einmal, kein Dedup nötig.
+        log_interaction(
+            category="context_check", node="context_check",
+            session_id=state["session_id"], task=state.get("current_task"),
+            channel=state["channel"], context_changed=False,
+        )
         return state
 
-    current = _snapshot_relevant_state(state["sandbox_state"], action)
-    previous = state.get("pending_action_snapshot")
+    state["pending_action_snapshot"] = _snapshot_relevant_state(state["sandbox_state"], action)
+    state["context_changed"] = False
 
-    if previous is None:
-        # Erster Durchlauf: Snapshot zum Zeitpunkt der (gleich folgenden) Zustimmung setzen
-        state["pending_action_snapshot"] = current
-        state["context_changed"] = False
-    elif previous != current:
-        state["context_changed"] = True
-        state["change_description"] = (
-            f"Es gibt inzwischen {current['tickets_count']} statt vorher "
-            f"{previous['tickets_count']} offene Tickets."
-        )
-    else:
-        state["context_changed"] = False
-
+    log_interaction(
+        category="context_check", node="context_check",
+        session_id=state["session_id"], task=state.get("current_task"),
+        channel=state["channel"], context_changed=False,
+    )
     return state
 
 
@@ -455,11 +579,83 @@ def route_from_context_check(state: OnboardingState) -> str:
     return "updated_query" if state["context_changed"] else "human_review"
 
 
+def _human_review_needs_interrupt(state: OnboardingState) -> bool:
+    """Zentrale Bedingung für 'nimmt human_review_node den autonomen Zweig
+    (ohne interrupt()) oder wartet es auf eine Bestätigung' - von
+    human_review_node UND announce_confirmation_node genutzt, statt an
+    beiden Stellen denselben Ausdruck zu wiederholen.
+
+    control_level == "low"    -> nie bestätigen (voll autonom)
+    control_level == "medium" -> nur bestätigen, wenn is_critical (siehe
+                                  criticality_policy.py) - Studienbedingung,
+                                  siehe DEFAULT_CONTROL_LEVEL in api/config.py
+    control_level == "high"   -> immer bestätigen, auch unkritische Aktionen
+    Kein pending_action -> nichts zu bestätigen, unabhängig von control_level."""
+    action = state["pending_action"]
+    if action is None:
+        return False
+    control_level = state["control_level"]
+    if control_level == "low":
+        return False
+    if control_level == "medium":
+        # Im Zweifel bestätigen lassen statt stillschweigend autonom
+        # durchlaufen zu lassen - dieselbe Vorsichtsregel wie im Default von
+        # criticality_policy.is_tool_critical().
+        return action.get("is_critical", True)
+    return True  # "high"
+
+
+def announce_confirmation_node(state: OnboardingState) -> OnboardingState:
+    """Sitzt zwischen context_check und human_review/updated_query, NUR um
+    den 'interrupt_raised'-Log-Eintrag GENAU EINMAL zu schreiben, bevor der
+    eigentliche interrupt()-Aufruf im Nachfolgeknoten passiert - siehe
+    Bericht an die Nutzerin: ein Dedup-Versuch ÜBER dot_status INNERHALB
+    des interrupt()-Knotens selbst schlug fehl, weil ein raisender
+    interrupt()-Aufruf die vorherigen state-Mutationen desselben
+    Knotendurchlaufs nicht checkpointet - der Resume-Durchlauf sah wieder
+    den alten Stand und loggte ein zweites Mal. Dieser Knoten hier dagegen
+    schließt VOR dem interrupt() regulär als eigener Graph-Schritt ab, wird
+    also genau einmal checkpointet; ein Resume läuft nie erneut durch ihn.
+
+    Loggt NICHT bedingungslos: updated_query_node interrupt't immer,
+    sobald es erreicht wird (kein autonomer Zweig dort). human_review_node
+    dagegen nimmt in mehreren Fällen den autonomen Zweig OHNE interrupt()
+    (siehe _human_review_needs_interrupt: control_level=="low", kein
+    pending_action, oder control_level=="medium" mit is_critical==False) -
+    für die würde ein unbedingtes Log hier eine Bestätigung ankündigen, die
+    nie erscheint. Die Unterscheidung nutzt _human_review_needs_interrupt()
+    (dieselbe Funktion, die auch human_review_node selbst verwendet) statt
+    die Bedingung hier zu wiederholen, und ermittelt das Ziel über
+    route_from_context_check() (dieselbe Funktion, die auch als
+    Routing-Bedingung in build_graph() hängt) statt eine zweite
+    Routing-Logik zu bauen."""
+    target_node = route_from_context_check(state)
+    if target_node == "human_review" and not _human_review_needs_interrupt(state):
+        return state
+
+    log_interaction(
+        category="interrupt_raised",
+        node=target_node,
+        session_id=state["session_id"],
+        task=state.get("current_task"),
+        channel=state["channel"],
+        proposal=state.get("pending_action"),
+        change_notice=state.get("change_description") if target_node == "updated_query" else None,
+    )
+    return state
+
+
 # ---------------------------------------------------------------------------
 # Aktualisierte Nachfrage bei geändertem Kontext (Punkt 5)
 # ---------------------------------------------------------------------------
 
 def updated_query_node(state: OnboardingState) -> OnboardingState:
+    # Der "interrupt_raised"-Log-Eintrag für diesen Fall entsteht bereits
+    # VORHER in announce_confirmation_node, nicht hier - ein raisender
+    # interrupt()-Aufruf checkpointet keine state-Mutationen aus demselben
+    # Knotendurchlauf, die davor gemacht wurden (siehe dortiger
+    # Docstring), ein log_interaction() an dieser Stelle würde also bei
+    # jedem Resume ein zweites Mal laufen.
     state["dot_status"] = "waiting"
     decision = interrupt({
         "proposal": state["pending_action"],
@@ -490,7 +686,7 @@ def route_from_updated_query(state: OnboardingState) -> str:
 # ---------------------------------------------------------------------------
 
 def human_review_node(state: OnboardingState) -> OnboardingState:
-    if state["control_level"] == "low" or state["pending_action"] is None:
+    if not _human_review_needs_interrupt(state):
         log_interaction(
             category="autonomous", node="human_review",
             session_id=state["session_id"], task=state.get("current_task"),
@@ -498,6 +694,9 @@ def human_review_node(state: OnboardingState) -> OnboardingState:
         )
         return state
 
+    # Der "interrupt_raised"-Log-Eintrag für diesen Fall entsteht bereits
+    # VORHER in announce_confirmation_node, nicht hier - siehe identischer
+    # Kommentar in updated_query_node.
     state["dot_status"] = "waiting"
     decision = interrupt({
         "proposal": state["pending_action"],
@@ -515,11 +714,87 @@ def human_review_node(state: OnboardingState) -> OnboardingState:
 
 
 # ---------------------------------------------------------------------------
+# G13, zweiter Vergleich: Zustand bei Zustimmung vs. Zustand direkt vor der
+# Ausführung - läuft NACH der ersten Bestätigung, VOR execute_action.
+# ---------------------------------------------------------------------------
+
+def context_recheck_node(state: OnboardingState) -> OnboardingState:
+    """Der eigentliche G13-Vergleich (siehe context_check_node): vergleicht
+    den Snapshot bei Zustimmung (state["pending_action_snapshot"]) gegen
+    den LIVE-Zustand direkt vor der Ausführung. Läuft NACH der ersten
+    Bestätigung in human_review_node (bzw. nach dessen autonomem Zweig),
+    NICHT davor - das ist der einzige Punkt in diesem Graphen, an dem
+    zwischen Snapshot-Zeitpunkt und Vergleichs-Zeitpunkt überhaupt eine
+    Wartezeit (der erste interrupt()) gelegen haben kann, in der sich
+    etwas hätte ändern können.
+
+    KEIN eigener interrupt() hier - läuft deshalb garantiert nur einmal
+    (kein Replay-Risiko, gleiches Prinzip wie announce_confirmation_node).
+    Bei erkannter Änderung wird zum bestehenden updated_query_node
+    geroutet, das die zweite Bestätigung ("trotzdem bestätigen"/
+    "abbrechen") tatsächlich einholt, BEVOR execute_action läuft
+    (Guideline 6: Rückmeldung VOR Ausführung, nicht danach - die Person
+    muss die Zustimmung zurückziehen können, nachdem sie von der Änderung
+    erfährt).
+
+    WICHTIG (siehe Bericht an die Nutzerin): sandbox_state ändert sich im
+    aktuellen, streng sequenziellen Ausführungsmodell NICHT von selbst
+    während ein interrupt() wartet - dieser Knoten macht den Vergleich
+    strukturell korrekt, löst ihn aber im laufenden Betrieb nur dann aus,
+    wenn etwas AUSSERHALB dieses einen Graph-Laufs sandbox_state ändert
+    (z.B. über graph.update_state() - siehe test_context_recheck.py). Ohne
+    einen Sync-Kanal zwischen Sandbox-UI und sandbox_state ist das im
+    Studienbetrieb aktuell nicht durch echte Nutzeraktionen erreichbar
+    (siehe Setup_Dokumentation.md)."""
+    action = state.get("pending_action")
+    if action is None:
+        # 'ablehnen'/'anpassen' in human_review_node hat pending_action
+        # bereits auf None gesetzt - nichts zu vergleichen.
+        state["context_changed"] = False
+        return state
+
+    current = _snapshot_relevant_state(state["sandbox_state"], action)
+    previous = state.get("pending_action_snapshot")
+
+    if previous is not None and previous != current:
+        state["context_changed"] = True
+        state["change_description"] = (
+            f"Es gibt inzwischen {current['tickets_count']} statt vorher "
+            f"{previous['tickets_count']} offene Tickets."
+        )
+        # interrupt_raised-Log für den ZWEITEN Interrupt (updated_query)
+        # direkt hier, nicht über announce_confirmation_node - dieser
+        # Knoten ist (wie announce_confirmation_node) der einzige
+        # Vorgänger, der diese zweite Bestätigung auslöst, läuft
+        # garantiert nur einmal, und route_from_context_check ist hier
+        # nicht wiederverwendbar (anderes "unverändert"-Ziel:
+        # execute_action statt human_review) - eigene, kleine
+        # Routing-Entscheidung statt Nachbau der bestehenden unter
+        # anderem Namen.
+        log_interaction(
+            category="interrupt_raised", node="updated_query",
+            session_id=state["session_id"], task=state.get("current_task"),
+            channel=state["channel"], proposal=action,
+            change_notice=state["change_description"],
+        )
+    else:
+        state["context_changed"] = False
+    return state
+
+
+def route_from_context_recheck(state: OnboardingState) -> str:
+    return "updated_query" if state["context_changed"] else "execute_action"
+
+
+# ---------------------------------------------------------------------------
 # Eskalation - mit Abbruchgrund + Alternative/menschlichem Kontakt (Punkt 2)
 # ---------------------------------------------------------------------------
 
 def escalate_node(state: OnboardingState) -> OnboardingState:
     colleague = find_colleague_for_topic(state.get("current_task", ""))
+    # Additiv fürs Rationale-Feld der API-Schicht (siehe backend/api/rationale.py) -
+    # rein informativ, wird von keinem anderen Knoten/Routing gelesen.
+    state["last_colleague"] = colleague
 
     if state.get("correction_count", 0) > MAX_CORRECTION_ATTEMPTS:
         reason = "; ".join(state.get("pruefer_issues", [])) or "wiederholte Qualitätsprobleme"
@@ -577,11 +852,51 @@ def escalate_node(state: OnboardingState) -> OnboardingState:
     return state
 
 
+def _execution_confirmation_text(action: dict) -> str:
+    """Kurzer, deterministischer Bestätigungstext (bewusst KEIN LLM-Aufruf -
+    reine Nennung der tatsächlich ausgeführten Aktion aus `action`, nicht
+    generisch). Siehe execute_action_node."""
+    tool = action.get("tool")
+    args = action.get("args") or {}
+
+    if tool == "create_ticket":
+        department = action.get("department") or args.get("department")
+        if department:
+            return f"Erledigt – das Ticket ist bei {department} angelegt."
+        return "Erledigt – das Ticket ist angelegt."
+
+    if tool == "add_calendar_event":
+        title = args.get("title")
+        if title:
+            return f"Erledigt – „{title}“ ist im Kalender eingetragen."
+        return "Erledigt – der Termin ist eingetragen."
+
+    if tool == "send_message":
+        to = args.get("to")
+        if to:
+            return f"Erledigt – die Nachricht an {to} ist raus."
+        return "Erledigt – die Nachricht ist gesendet."
+
+    return "Erledigt."
+
+
 def execute_action_node(state: OnboardingState) -> OnboardingState:
     action = state["pending_action"]
     if action:
         tool_fn = AVAILABLE_TOOLS[action["tool"]]
         tool_fn(state["sandbox_state"], **action["args"])
+        # Sichtbare Rückmeldung im Chat, dass die bestätigte Aktion
+        # tatsächlich gewirkt hat - vorher passierte nach der Bestätigung
+        # nichts Sichtbares (siehe Architektur-Gespräch, erlebte Kontrolle).
+        state["messages"].append(
+            {"role": "assistant", "content": _execution_confirmation_text(action)}
+        )
+        # Additiv fürs Rationale-Feld der API-Schicht (siehe
+        # backend/api/rationale.py): pending_action wird direkt im Anschluss
+        # auf None zurückgesetzt, daher hier separat für den
+        # "...erstellt/eingetragen/gesendet"-Schritt der obigen
+        # Bestätigungsnachricht festgehalten.
+        state["last_executed_action"] = action
     state["pending_action"] = None
     state["dot_status"] = "idle"
     # Zurück zum Supervisor statt direkt zu enden - prüft dort, ob es
@@ -601,10 +916,13 @@ def build_graph(checkpointer=None):
     graph.add_node("supervisor", supervisor_node)
     graph.add_node("infrastructure_agent", infrastructure_agent_node)
     graph.add_node("info_agent", info_agent_node)
+    graph.add_node("scheduling_agent", scheduling_agent_node)
     graph.add_node("pruefer", pruefer_node)
     graph.add_node("context_check", context_check_node)
+    graph.add_node("announce_confirmation", announce_confirmation_node)
     graph.add_node("updated_query", updated_query_node)
     graph.add_node("human_review", human_review_node)
+    graph.add_node("context_recheck", context_recheck_node)
     graph.add_node("escalate", escalate_node)
     graph.add_node("execute_action", execute_action_node)
 
@@ -612,18 +930,24 @@ def build_graph(checkpointer=None):
     graph.add_conditional_edges("supervisor", route_from_supervisor, {
         "infrastructure_agent": "infrastructure_agent",
         "info_agent": "info_agent",
+        "scheduling_agent": "scheduling_agent",
         "escalate": "escalate",
         "__end__": END,
     })
 
     graph.add_edge("infrastructure_agent", "pruefer")
     graph.add_edge("info_agent", "pruefer")
+    graph.add_edge("scheduling_agent", "pruefer")
     graph.add_conditional_edges("pruefer", route_from_pruefer, {
         "supervisor": "supervisor",
         "context_check": "context_check",
     })
 
-    graph.add_conditional_edges("context_check", route_from_context_check, {
+    # context_check -> announce_confirmation ist eine EINFACHE Kante (kein
+    # eigenes Routing) - announce_confirmation entscheidet selbst per
+    # route_from_context_check() weiter, siehe dortiger Docstring.
+    graph.add_edge("context_check", "announce_confirmation")
+    graph.add_conditional_edges("announce_confirmation", route_from_context_check, {
         "updated_query": "updated_query",
         "human_review": "human_review",
     })
@@ -633,7 +957,17 @@ def build_graph(checkpointer=None):
         "__end__": END,
     })
 
-    graph.add_edge("human_review", "execute_action")
+    # human_review -> context_recheck statt direkt -> execute_action: der
+    # zweite G13-Vergleich (siehe context_recheck_node) muss zwischen jeder
+    # ersten Bestätigung/jedem autonomen Durchlauf und der tatsächlichen
+    # Ausführung liegen, sonst käme eine erkannte Änderung erst NACH der
+    # Ausführung ans Licht (Guideline 6 verlangt VORHER).
+    graph.add_edge("human_review", "context_recheck")
+    graph.add_conditional_edges("context_recheck", route_from_context_recheck, {
+        "updated_query": "updated_query",
+        "execute_action": "execute_action",
+    })
+
     # Beide führen zurück zum Supervisor (dort: check_target="next_subtask"),
     # statt die gesamte Kette nach einem einzigen Teilschritt zu beenden.
     graph.add_edge("execute_action", "supervisor")
