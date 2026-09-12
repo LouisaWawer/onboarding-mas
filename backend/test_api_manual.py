@@ -18,6 +18,7 @@ nicht wie erwartet lief.
 
 from __future__ import annotations
 
+import datetime
 import json
 import os
 import sys
@@ -44,6 +45,31 @@ LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "interaction
 EXPECTED_TOOL_CRITICALITY = {
     "create_ticket": True,
     "add_calendar_event": False,
+}
+
+# Bewusst UNABHÄNGIG von agent/graph.py nachgebildet - siehe Begründung
+# bei EXPECTED_TOOL_CRITICALITY oben.
+WEEKDAY_NAMES = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag"]
+
+# Bewusst UNABHÄNGIG von api/suggestion_policy.py nachgebildet - siehe
+# Begründung bei EXPECTED_TOOL_CRITICALITY oben.
+SUGGESTION_TEXTS = {
+    "calendar": {
+        "displayed": "Wenn du einen Termin eintragen willst, mache ich das gern für dich.",
+        "submitted": "Ich möchte einen Termin eintragen.",
+    },
+    "tickets": {
+        "displayed": "Wenn du etwas von einem Team brauchst, kann ich daraus ein Ticket machen.",
+        "submitted": "Ich brauche etwas von einem Team und möchte eine Anfrage stellen.",
+    },
+    "hub": {
+        "displayed": "Wenn du nicht findest wonach du suchst, frag mich direkt.",
+        "submitted": "Ich suche etwas in der Wissensdatenbank und finde es nicht.",
+    },
+    "intranet": {
+        "displayed": "Falls du wissen willst, wer hier wofür zuständig ist: frag mich.",
+        "submitted": "Wer ist bei Nordlicht wofür zuständig?",
+    },
 }
 
 
@@ -139,13 +165,20 @@ class SSEListener:
         after_index: int,
         thread_id: Optional[str] = None,
         status: Optional[str] = None,
+        session_scoped: bool = False,
         timeout: float = 20.0,
     ) -> tuple[int, dict]:
         """Wie wait_for, aber nur Events MIT INDEX > after_index in
         self.events - für Reihenfolge-Prüfungen zwischen mehreren Events
         (z.B. "kommt X wirklich NACH Y"). Gibt (index, event) zurück, damit
         der zurückgegebene Index als after_index für die nächste Prüfung
-        in derselben Kette weiterverwendet werden kann."""
+        in derselben Kette weiterverwendet werden kann.
+
+        session_scoped=True filtert auf thread_id IS NULL - für die
+        session-gebundenen status_changed-Events der "suggestion"-Funktion
+        (siehe Bericht an die Nutzerin), die denselben Status-Wortschatz
+        wie thread-gebundene Events teilen (z.B. "idle") und sich sonst
+        nicht eindeutig zuordnen ließen."""
         deadline = time.time() + timeout
         while time.time() < deadline:
             with self._lock:
@@ -156,13 +189,16 @@ class SSEListener:
                         continue
                     if thread_id is not None and event.get("thread_id") != thread_id:
                         continue
+                    if session_scoped and event.get("thread_id") is not None:
+                        continue
                     if status is not None and event.get("status") != status:
                         continue
                     return idx, event
             time.sleep(0.2)
         raise TimeoutError(
-            f"Event '{event_type}' (thread_id={thread_id}, status={status}) "
-            f"nach Index {after_index} nicht innerhalb {timeout}s erhalten"
+            f"Event '{event_type}' (thread_id={thread_id}, status={status}, "
+            f"session_scoped={session_scoped}) nach Index {after_index} "
+            f"nicht innerhalb {timeout}s erhalten"
         )
 
     def all_of(self, event_type: str, thread_id: Optional[str] = None) -> list[dict]:
@@ -221,14 +257,24 @@ def test_access_code() -> str:
 
 
 def test_preseeded_anfragen(session_id: str) -> list[dict]:
-    """Vorbelegte Anfragen erscheinen in der Liste dieser Session."""
+    """Vorbelegte Anfragen erscheinen in der Liste dieser Session, mit
+    Titel, UND als 'idle' statt 'working' - explizite Regressionsprüfung,
+    kein Nebenprodukt (siehe Bericht an die Nutzerin): graph.update_state()
+    ohne as_node ließ jede vorbelegte Anfrage dauerhaft 'working' zeigen,
+    seit dem AnfrageSummary.status-Feld aus einem früheren Auftrag
+    unbemerkt - erst die 'suggestion'-Funktion (session_has_live_anfrage)
+    machte den Fehler überhaupt sichtbar."""
     status, body = get(f"/session/{session_id}")
     assert status == 200
     anfragen = body["anfragen"]
     assert len(anfragen) >= 2, f"erwartet >=2 vorbelegte Anfragen, bekam {len(anfragen)}"
     for a in anfragen:
         assert a["title"], f"vorbelegte Anfrage ohne Titel: {a}"
-    print(f"[ok] {len(anfragen)} vorbelegte Anfragen vorhanden, Titel gesetzt")
+        assert a["status"] == "idle", (
+            f"vorbelegte Anfrage zeigt Status '{a['status']}' statt 'idle' - "
+            f"siehe Bericht an die Nutzerin (graph.update_state ohne as_node): {a}"
+        )
+    print(f"[ok] {len(anfragen)} vorbelegte Anfragen vorhanden, Titel gesetzt, Status 'idle'")
     return anfragen
 
 
@@ -301,8 +347,10 @@ def test_rationale(session_id: str, thread_id: str, listener: SSEListener) -> No
 def test_bestaetigung_liefert_ausfuehrungs_schritt(session_id: str, listener: SSEListener) -> str:
     """(a) BESTÄTIGUNG: nach POST /resume mit Zustimmung kommt
     interrupt_resolved, danach ein ZWEITES message_appended für dieselbe
-    thread_id, danach status_changed "idle" - genau in dieser Reihenfolge.
-    Die rationale.steps dieser zweiten Nachricht tragen ein
+    thread_id, danach status_changed "result" (nicht mehr "idle" - siehe
+    Bericht an die Nutzerin: peripheres Signal nach Abschluss, solange
+    noch niemand POST /thread/{id}/seen aufgerufen hat) - genau in dieser
+    Reihenfolge. Die rationale.steps dieser zweiten Nachricht tragen ein
     Ausführungs-Label ("... erstellt"/"... eingetragen"/"... gesendet"),
     nicht das Vorschlags-Label der Nachricht davor."""
     thread_id, interrupt_event = _start_anfrage_and_wait_for_interrupt(
@@ -343,12 +391,12 @@ def test_bestaetigung_liefert_ausfuehrungs_schritt(session_id: str, listener: SS
     idx_message, message_event = listener.wait_for_after(
         "message_appended", idx_resolved, thread_id=thread_id, timeout=30.0
     )
-    idx_idle, _ = listener.wait_for_after(
-        "status_changed", idx_message, thread_id=thread_id, status="idle", timeout=30.0
+    idx_result, _ = listener.wait_for_after(
+        "status_changed", idx_message, thread_id=thread_id, status="result", timeout=30.0
     )
     print(
         f"[ok] Reihenfolge stimmt: interrupt_resolved(#{idx_resolved}) "
-        f"-> message_appended(#{idx_message}) -> idle(#{idx_idle})"
+        f"-> message_appended(#{idx_message}) -> result(#{idx_result})"
     )
 
     rationale = message_event.get("rationale")
@@ -362,6 +410,61 @@ def test_bestaetigung_liefert_ausfuehrungs_schritt(session_id: str, listener: SS
     print(f"[ok] Bestätigungstext: {message_event['message']['content']!r}")
 
     return thread_id
+
+
+def test_seen_setzt_result_auf_idle_zurueck(session_id: str, thread_id: str, listener: SSEListener) -> None:
+    """POST /thread/{id}/seen setzt 'result' (aus
+    test_bestaetigung_liefert_ausfuehrungs_schritt) auf 'idle' zurück -
+    sowohl live per SSE-Event als auch in GET /thread danach. Prüft
+    zusätzlich, dass die Antwort NICHT blind 'idle' behauptet, sondern den
+    tatsächlich aktuellen (Checkpoint-)Status published (siehe
+    post_seen())."""
+    status, snap = get(f"/thread/{thread_id}?session_id={session_id}")
+    assert status == 200
+    assert snap["status"] == "result", f"erwartet 'result' vor /seen, bekam {snap['status']}"
+
+    baseline = len(listener.events) - 1
+    status, body = post(f"/thread/{thread_id}/seen", {"session_id": session_id})
+    assert status == 200, f"POST /seen fehlgeschlagen: {status} {body}"
+
+    idx_idle, _ = listener.wait_for_after(
+        "status_changed", baseline, thread_id=thread_id, status="idle", timeout=10.0
+    )
+    print(f"[ok] /seen: status_changed 'idle' empfangen (#{idx_idle})")
+
+    status, snap = get(f"/thread/{thread_id}?session_id={session_id}")
+    assert status == 200
+    assert snap["status"] == "idle", f"erwartet 'idle' nach /seen, bekam {snap['status']}"
+    print("[ok] GET /thread bestätigt 'idle' nach /seen")
+
+
+def test_mehrere_anfragen_result_gleichzeitig_in_session_snapshot(session_id: str, listener: SSEListener) -> None:
+    """Zwei Anfragen derselben Session erreichen unabhängig voneinander
+    'result', OHNE dass eine davon per /seen quittiert wird - GET /session
+    muss BEIDE korrekt zeigen, nicht nur die zuletzt aktive (siehe Bericht
+    an die Nutzerin: 'result' gilt pro Anfrage, das Backend kürt keinen
+    Gewinner - welcher Zustand am peripheren Punkt sichtbar wird, ist eine
+    Frontend-Entscheidung)."""
+    status, a = post(f"/session/{session_id}/anfrage")
+    assert status == 200
+    thread_a = a["thread_id"]
+    status, body = post(f"/message/{thread_a}", {"session_id": session_id, "text": "Wie beantrage ich Urlaub?"})
+    assert status == 200, f"POST /message fehlgeschlagen: {status} {body}"
+    listener.wait_for_after("status_changed", -1, thread_id=thread_a, status="result", timeout=30.0)
+
+    status, b = post(f"/session/{session_id}/anfrage")
+    assert status == 200
+    thread_b = b["thread_id"]
+    status, body = post(f"/message/{thread_b}", {"session_id": session_id, "text": "Wie beantrage ich Urlaub?"})
+    assert status == 200, f"POST /message fehlgeschlagen: {status} {body}"
+    listener.wait_for_after("status_changed", -1, thread_id=thread_b, status="result", timeout=30.0)
+
+    status, snap = get(f"/session/{session_id}")
+    assert status == 200
+    statuses = {row["thread_id"]: row["status"] for row in snap["anfragen"]}
+    assert statuses.get(thread_a) == "result", f"Anfrage A nicht als 'result' im Session-Snapshot: {statuses}"
+    assert statuses.get(thread_b) == "result", f"Anfrage B nicht als 'result' im Session-Snapshot: {statuses}"
+    print(f"[ok] GET /session zeigt beide Anfragen unabhängig als 'result': {thread_a[:8]}…, {thread_b[:8]}…")
 
 
 def test_interrupt_raised_geloggt_kein_duplikat_bei_resume(session_id: str, listener: SSEListener) -> None:
@@ -423,13 +526,15 @@ def test_interrupt_raised_geloggt_kein_duplikat_bei_resume(session_id: str, list
 
 def test_ablehnung_kein_zweites_message_appended(session_id: str, listener: SSEListener) -> None:
     """(b) ABLEHNUNG, wichtigerer Fall: nach POST /resume mit Ablehnung
-    kommt interrupt_resolved und danach DIREKT status_changed "idle",
-    OHNE zweites message_appended. Prüft AKTIV die Abwesenheit einer
-    weiteren Nachricht (Zeitfenster zwischen den beiden Events UND eine
-    kurze Nachbeobachtung danach) - nicht nur, dass irgendwann "idle"
-    erscheint. Wenn das Frontend nach interrupt_resolved auf eine
-    Nachricht wartet, hängt es bei jeder Ablehnung - das soll dieser Test
-    aufdecken."""
+    kommt interrupt_resolved und danach DIREKT status_changed "idle" -
+    NICHT "result" (siehe Bericht an die Nutzerin: ein Abschluss ohne neue
+    Nachricht bekommt kein peripheres Signal, sonst wäre es eine leere
+    Benachrichtigung genau gegen den Calm-Technology-Grundsatz) -, OHNE
+    zweites message_appended. Prüft AKTIV die Abwesenheit einer weiteren
+    Nachricht (Zeitfenster zwischen den beiden Events UND eine kurze
+    Nachbeobachtung danach) - nicht nur, dass irgendwann "idle" erscheint.
+    Wenn das Frontend nach interrupt_resolved auf eine Nachricht wartet,
+    hängt es bei jeder Ablehnung - das soll dieser Test aufdecken."""
     thread_id, interrupt_event = _start_anfrage_and_wait_for_interrupt(
         session_id, listener, "Ich brauche einen neuen Laptop, kannst du das einrichten?"
     )
@@ -609,13 +714,15 @@ def test_medium_unterscheidet_ticket_und_kalender(session_id: str, listener: SSE
     # überhaupt gestartet ist).
     listener.wait_for("message_appended", thread_id=thread_id_calendar, timeout=30.0)
 
+    # "result", nicht "idle": es WURDE eine neue Nachricht angehängt (die
+    # Ausführungsbestätigung), siehe Bericht an die Nutzerin.
     deadline = time.time() + 30
     status, snap = get(f"/thread/{thread_id_calendar}?session_id={session_id}")
-    while snap["status"] != "idle" and time.time() < deadline:
+    while snap["status"] != "result" and time.time() < deadline:
         time.sleep(0.3)
         status, snap = get(f"/thread/{thread_id_calendar}?session_id={session_id}")
-    assert snap["status"] == "idle", (
-        f"erwartet autonomer Durchlauf bis 'idle' für add_calendar_event bei "
+    assert snap["status"] == "result", (
+        f"erwartet autonomer Durchlauf bis 'result' für add_calendar_event bei "
         f"control_level=medium (is_critical=False), bekam {snap['status']}"
     )
     assert snap["interrupt"] is None, "add_calendar_event hat trotzdem einen interrupt hinterlassen"
@@ -650,6 +757,176 @@ def test_medium_unterscheidet_ticket_und_kalender(session_id: str, listener: SSE
     print("[ok] Kontrast bestätigt: create_ticket wartet bei medium, add_calendar_event nicht")
 
 
+def _wait_for_calendar_turn_to_settle(session_id: str, thread_id: str) -> dict:
+    deadline = time.time() + 30
+    status, snap = get(f"/thread/{thread_id}?session_id={session_id}")
+    while snap["status"] not in ("result", "error") and time.time() < deadline:
+        time.sleep(0.3)
+        status, snap = get(f"/thread/{thread_id}?session_id={session_id}")
+    assert status == 200
+    return snap
+
+
+def test_kalender_normalisierung_mehrere_formulierungen(session_id: str, listener: SSEListener) -> None:
+    """Kalender-Normalisierung mit mehreren natürlichsprachlichen
+    Formulierungen (siehe Bericht an die Nutzerin): das Modell übernimmt
+    die Umrechnung auf weekday (0-4)/hour (volle Stunde 8-16), keine
+    Parsing-Schicht im Frontend. add_calendar_event ist unkritisch
+    (control_level=medium), läuft also autonom durch - direkt auf
+    'result' gepollt, kein /resume nötig.
+
+    "Dienstag halb drei" und "morgen früh um 9" sind mit der festen
+    'heute'-Referenz (Mittwoch, SANDBOX_TODAY_DESCRIPTION in graph.py)
+    eindeutig INNERHALB der Woche und werden deterministisch geprüft
+    (weekday/hour exakt, UND dass die Bestätigung den aufgelösten/
+    gerundeten Zeitpunkt tatsächlich nennt). "nächsten Donnerstag" ist im
+    Deutschen echt zweideutig (diese oder nächste Woche) - dafür nur
+    strukturelle Konsistenz geprüft, kein bestimmter Ausgang erzwungen,
+    dieselbe Vorsicht wie bei jedem Test, der auf einer LLM-Entscheidung
+    aufbaut (siehe test_eskalation_an_passende_person). "in drei Wochen"
+    ist eindeutig AUSSERHALB der Woche und wird deshalb deterministisch
+    auf die Wochen-Grenzen-Erklärung geprüft (Guideline: darf nicht wie
+    ein technischer Fehler klingen)."""
+
+    # --- "Dienstag halb drei" - eindeutig in der Woche, Rundung nötig ---
+    status, body = post(f"/session/{session_id}/anfrage")
+    assert status == 200
+    thread_id = body["thread_id"]
+    status, body = post(
+        f"/message/{thread_id}",
+        {"session_id": session_id, "text": "Kannst du am Dienstag halb drei ein kurzes Sync-Meeting eintragen?"},
+    )
+    assert status == 200, f"POST /message fehlgeschlagen: {status} {body}"
+    listener.wait_for("message_appended", thread_id=thread_id, timeout=30.0)
+    snap = _wait_for_calendar_turn_to_settle(session_id, thread_id)
+    assert snap["status"] == "result", f"erwartet 'result' für eindeutig-in-Woche-Termin, bekam {snap['status']}: {snap}"
+    execution_messages = [
+        m for m in snap["messages"]
+        if m.get("rationale") and any(s["label"] == "Termin eingetragen" for s in m["rationale"]["steps"])
+    ]
+    assert execution_messages, f"kein Ausführungsschritt für 'Dienstag halb drei': {snap['messages']}"
+    confirmation_text = execution_messages[-1]["content"]
+    assert "Dienstag" in confirmation_text, f"Bestätigungstext nennt nicht 'Dienstag': {confirmation_text!r}"
+    assert "14:00" in confirmation_text or "15:00" in confirmation_text, (
+        f"Bestätigungstext nennt nicht die gerundete Uhrzeit (14:00 oder 15:00): {confirmation_text!r}"
+    )
+    print(f"[ok] 'Dienstag halb drei' -> {confirmation_text!r}")
+
+    # --- "morgen früh um 9" - eindeutig in der Woche (heute=Mittwoch -> morgen=Donnerstag) ---
+    status, body = post(f"/session/{session_id}/anfrage")
+    assert status == 200
+    thread_id2 = body["thread_id"]
+    status, body = post(
+        f"/message/{thread_id2}",
+        {"session_id": session_id, "text": "Trag mir bitte morgen früh um 9 ein Standup ein."},
+    )
+    assert status == 200, f"POST /message fehlgeschlagen: {status} {body}"
+    listener.wait_for("message_appended", thread_id=thread_id2, timeout=30.0)
+    snap2 = _wait_for_calendar_turn_to_settle(session_id, thread_id2)
+    assert snap2["status"] == "result", f"erwartet 'result' für 'morgen früh um 9', bekam {snap2['status']}: {snap2}"
+    execution_messages2 = [
+        m for m in snap2["messages"]
+        if m.get("rationale") and any(s["label"] == "Termin eingetragen" for s in m["rationale"]["steps"])
+    ]
+    # "heute" wird zur LAUFZEIT ermittelt (siehe Bericht an die Nutzerin) -
+    # der Test muss dieselbe Rechnung unabhängig nachvollziehen, nicht eine
+    # feste Erwartung annehmen. today_weekday>=4 deckt Freitag (morgen=
+    # Samstag, nicht darstellbar), Samstag und Sonntag (heute selbst nicht
+    # darstellbar) einheitlich ab.
+    today_weekday = datetime.date.today().weekday()  # 0=Montag ... 6=Sonntag
+    if today_weekday >= 4:
+        assert not execution_messages2, (
+            f"'morgen früh um 9' hätte an diesem Wochentag (Index {today_weekday}, "
+            f"morgen ist Wochenende oder heute selbst ist bereits Wochenende) keinen "
+            f"Eintrag erzeugen dürfen: {snap2['messages']}"
+        )
+        proposal_messages2 = [m for m in snap2["messages"] if m["role"] == "assistant"]
+        assert proposal_messages2, f"keine Antwort für 'morgen früh um 9' erhalten: {snap2}"
+        print(
+            f"[ok] 'morgen früh um 9' korrekt als nicht darstellbar erkannt "
+            f"(heute-Wochentag-Index={today_weekday}): {proposal_messages2[0]['content']!r}"
+        )
+    else:
+        assert execution_messages2, f"kein Ausführungsschritt für 'morgen früh um 9': {snap2['messages']}"
+        confirmation_text2 = execution_messages2[-1]["content"]
+        expected_day_name = WEEKDAY_NAMES[today_weekday + 1]
+        assert expected_day_name in confirmation_text2, (
+            f"Bestätigungstext nennt nicht '{expected_day_name}' (heute="
+            f"{WEEKDAY_NAMES[today_weekday]} -> morgen={expected_day_name}): {confirmation_text2!r}"
+        )
+        assert "09:00" in confirmation_text2, f"Bestätigungstext nennt nicht 09:00: {confirmation_text2!r}"
+        print(f"[ok] 'morgen früh um 9' -> {confirmation_text2!r}")
+
+    # --- "nächsten Donnerstag um 14 Uhr" - echt zweideutig, nur strukturelle
+    # Konsistenz geprüft, kein bestimmter Ausgang erzwungen. ---
+    status, body = post(f"/session/{session_id}/anfrage")
+    assert status == 200
+    thread_id3 = body["thread_id"]
+    status, body = post(
+        f"/message/{thread_id3}",
+        {"session_id": session_id, "text": "Kannst du nächsten Donnerstag um 14 Uhr ein Meeting mit dem Team eintragen?"},
+    )
+    assert status == 200, f"POST /message fehlgeschlagen: {status} {body}"
+    listener.wait_for("message_appended", thread_id=thread_id3, timeout=30.0)
+    snap3 = _wait_for_calendar_turn_to_settle(session_id, thread_id3)
+    assert snap3["status"] == "result", f"erwartet 'result', bekam {snap3['status']}: {snap3}"
+    execution_messages3 = [
+        m for m in snap3["messages"]
+        if m.get("rationale") and any(s["label"] == "Termin eingetragen" for s in m["rationale"]["steps"])
+    ]
+    if execution_messages3:
+        confirmation_text3 = execution_messages3[-1]["content"]
+        assert any(day in confirmation_text3 for day in WEEKDAY_NAMES), (
+            f"Ausführungs-Bestätigung ohne erkennbaren Wochentag: {confirmation_text3!r}"
+        )
+        print(f"[ok] 'nächsten Donnerstag um 14 Uhr' als DIESE Woche interpretiert -> {confirmation_text3!r}")
+    else:
+        proposal_messages3 = [m for m in snap3["messages"] if m["role"] == "assistant"]
+        assert proposal_messages3, f"keine Antwort für 'nächsten Donnerstag' erhalten: {snap3}"
+        explanation = proposal_messages3[0]["content"]
+        assert "Woche" in explanation, f"Erklärung erwähnt nicht die Wochen-Grenze des Prototyps: {explanation!r}"
+        # KEIN Blocklist-Check auf Wörter wie "Störung"/"Fehler": ein
+        # Substring-Check kann Negation nicht erkennen ("keine Störung" ist
+        # GENAU die gewünschte Formulierung, würde aber denselben Treffer
+        # wie "das ist eine Störung" liefern) - siehe Bericht an die
+        # Nutzerin, ein echter Fund an genau dieser Stelle. Ob es sich wie
+        # eine bewusste Grenze statt ein Defekt anhört, ist eine
+        # Tonalitätsfrage, keine Keyword-Frage - der ausgedruckte Text ist
+        # hier die eigentliche Prüfung, nicht ein Assert.
+        print(f"[ok] 'nächsten Donnerstag um 14 Uhr' als AUSSERHALB der Woche interpretiert -> {explanation!r}")
+
+    # --- "in drei Wochen" - eindeutig AUSSERHALB der Woche, deterministisch
+    # geprüft (im Gegensatz zu 'nächsten Donnerstag' oben). ---
+    status, body = post(f"/session/{session_id}/anfrage")
+    assert status == 200
+    thread_id4 = body["thread_id"]
+    status, body = post(
+        f"/message/{thread_id4}",
+        {"session_id": session_id, "text": "Kannst du in drei Wochen einen Termin für ein Feedbackgespräch eintragen?"},
+    )
+    assert status == 200, f"POST /message fehlgeschlagen: {status} {body}"
+    listener.wait_for("message_appended", thread_id=thread_id4, timeout=30.0)
+    snap4 = _wait_for_calendar_turn_to_settle(session_id, thread_id4)
+    assert snap4["status"] == "result", f"erwartet 'result', bekam {snap4['status']}: {snap4}"
+
+    execution_messages4 = [
+        m for m in snap4["messages"]
+        if m.get("rationale") and any(s["label"] == "Termin eingetragen" for s in m["rationale"]["steps"])
+    ]
+    assert not execution_messages4, (
+        f"'in drei Wochen' hat trotzdem einen Kalendereintrag erzeugt - within_current_week "
+        f"greift nicht: {snap4['messages']}"
+    )
+    proposal_messages4 = [m for m in snap4["messages"] if m["role"] == "assistant"]
+    assert proposal_messages4, f"keine Antwort für 'in drei Wochen' erhalten: {snap4}"
+    explanation4 = proposal_messages4[0]["content"]
+    assert "Woche" in explanation4, f"Erklärung erwähnt nicht die Wochen-Grenze des Prototyps: {explanation4!r}"
+    # Kein Blocklist-Check hier - siehe Begründung beim 'nächsten
+    # Donnerstag'-Fall oben (Negation, z.B. "keine Störung", ist per
+    # Substring-Match nicht von einer echten Fehlermeldung unterscheidbar).
+    print(f"[ok] 'in drei Wochen' korrekt außerhalb der Woche erkannt, kein Eintrag: {explanation4!r}")
+
+
 def test_context_trennung(session_id: str) -> None:
     """Zwei Anfragen derselben Session sind kontextgetrennt."""
     status, a = post(f"/session/{session_id}/anfrage")
@@ -663,6 +940,242 @@ def test_context_trennung(session_id: str) -> None:
     status, snap = get(f"/thread/{thread_b}?session_id={session_id}")
     assert snap["messages"] == [], "neue Anfrage hat bereits Nachrichten - Kontext nicht getrennt"
     print("[ok] neue Anfrage startet mit leerer Historie (Kontexttrennung strukturell durch eigene thread_id gegeben)")
+
+
+def test_vorschlag_faellt_aus_wenn_anfrage_laeuft_kontrast_zu_ruhiger_session() -> None:
+    """SCHREIBZEIT-Vorrang, als KONTRAST geprüft, nicht nur als Abwesenheit
+    (siehe Bericht an die Nutzerin: eine reine Abwesenheits-Prüfung wäre
+    auch dann grün, wenn Vorschläge grundsätzlich nicht funktionieren -
+    genau das Muster, an dem der ursprüngliche G13-Zwei-Subtask-Test schon
+    einmal scheiterte). Zwei VERSCHIEDENE Screens in derselben Session,
+    damit "bereits vorgeschlagen" die beiden Fälle nicht vermischt: Teil 1
+    (ruhige Session) MUSS einen Vorschlag auslösen, Teil 2 (Anfrage läuft)
+    MUSS ausfallen."""
+    _, session = post("/session", {"access_code": ACCESS_CODE})
+    sid = session["session_id"]
+    own_listener = SSEListener(sid)
+    own_listener.start()
+
+    # Teil 1: RUHIGE Session -> Vorschlag MUSS tatsächlich ankommen.
+    baseline = len(own_listener.events) - 1
+    status, body = post(f"/session/{sid}/screen", {"screen": "calendar"})
+    assert status == 200, f"POST /screen fehlgeschlagen: {status} {body}"
+    idx_suggestion, event = own_listener.wait_for_after(
+        "status_changed", baseline, status="suggestion", session_scoped=True, timeout=10.0
+    )
+    assert event["screen"] == "calendar"
+    print(f"[ok] Vorschlag kommt in ruhiger Session tatsächlich an (#{idx_suggestion}): {event['text']!r}")
+
+    # Anfrage aktiv werden lassen (VPN-Ticket, wartet auf Bestätigung).
+    thread_id, _ = _start_anfrage_and_wait_for_interrupt(
+        sid, own_listener, "Ich brauche einen VPN-Zugang, kannst du das einrichten?"
+    )
+
+    # Teil 2: ANDERER Screen, Session jetzt NICHT ruhig -> fällt aus.
+    baseline2 = len(own_listener.events) - 1
+    status, body = post(f"/session/{sid}/screen", {"screen": "tickets"})
+    assert status == 200, f"POST /screen fehlgeschlagen: {status} {body}"
+
+    # Aktive Prüfung (nicht nur "kam nichts rechtzeitig"): kurze
+    # Nachbeobachtung, dann Abwesenheit direkt geprüft - gleiches Prinzip
+    # wie test_ablehnung_kein_zweites_message_appended.
+    time.sleep(2)
+    suggestion_events = [
+        e for idx, e in enumerate(own_listener.events)
+        if idx > baseline2 and e.get("type") == "status_changed" and e.get("status") == "suggestion"
+    ]
+    assert not suggestion_events, f"Vorschlag wurde trotz laufender Anfrage ausgelöst: {suggestion_events}"
+
+    # Auch der VORHER gesetzte 'calendar'-Vorschlag muss jetzt unterdrückt
+    # sein (Lesezeit-Vorrang greift ebenfalls, siehe eigener Test dafür).
+    status, snap = get(f"/session/{sid}")
+    assert status == 200
+    assert snap.get("pending_suggestion") is None, (
+        f"pending_suggestion sichtbar, obwohl eine Anfrage der Session läuft/wartet: {snap}"
+    )
+    print("[ok] Vorschlag fällt aus (Schreibzeit), solange eine Anfrage der Session läuft/wartet - im Kontrast zu Teil 1")
+
+    own_listener.stop()
+
+
+def test_vorschlag_wird_bei_laufender_anfrage_lesezeitig_unterdrueckt_und_kehrt_zurueck() -> None:
+    """LESEZEIT-Vorrang - der wichtigere der beiden Fälle (siehe Bericht
+    an die Nutzerin): ein BEREITS gesetzter Vorschlag wird unterdrückt,
+    sobald DANACH irgendwo in der Session eine Anfrage aktiv wird - auch
+    OHNE dass /seen je aufgerufen wurde. Prüft zusätzlich, dass die
+    Unterdrückung reversibel ist (die gespeicherte Spalte wird nicht
+    gelöscht, nur die ANZEIGE unterdrückt): sobald die andere Anfrage
+    wieder ruht, taucht derselbe Vorschlag unverändert wieder auf - genau
+    die Bedingung, die bei einem naiven Umbau (z.B. "Override beim Start
+    eines Laufs überall löschen") still verschwinden würde."""
+    _, session = post("/session", {"access_code": ACCESS_CODE})
+    sid = session["session_id"]
+    own_listener = SSEListener(sid)
+    own_listener.start()
+
+    baseline = len(own_listener.events) - 1
+    status, body = post(f"/session/{sid}/screen", {"screen": "hub"})
+    assert status == 200, f"POST /screen fehlgeschlagen: {status} {body}"
+
+    idx_suggestion, event = own_listener.wait_for_after(
+        "status_changed", baseline, status="suggestion", session_scoped=True, timeout=10.0
+    )
+    assert event["screen"] == "hub"
+    assert event["text"] == SUGGESTION_TEXTS["hub"]["displayed"]
+    print(f"[ok] Vorschlag erscheint (#{idx_suggestion}): {event['text']!r}")
+
+    status, snap = get(f"/session/{sid}")
+    assert status == 200
+    assert snap["pending_suggestion"] == {"screen": "hub", "text": SUGGESTION_TEXTS["hub"]["displayed"]}
+    print("[ok] GET /session zeigt pending_suggestion konsistent zum Event")
+
+    # Jetzt, OHNE /seen aufzurufen, eine andere Anfrage der Session aktiv
+    # werden lassen.
+    thread_id, interrupt_event = _start_anfrage_and_wait_for_interrupt(
+        sid, own_listener, "Ich brauche einen VPN-Zugang, kannst du das einrichten?"
+    )
+
+    status, snap = get(f"/session/{sid}")
+    assert status == 200
+    assert snap["pending_suggestion"] is None, (
+        f"pending_suggestion trotz laufender/wartender Anfrage sichtbar - "
+        f"Lesezeit-Vorrang fehlt: {snap}"
+    )
+    print("[ok] pending_suggestion lesezeitig unterdrückt, solange die andere Anfrage wartet")
+
+    # Anfrage auflösen (bestätigen) - Session wieder ruhig.
+    confirm_option = next(
+        (o for o in interrupt_event["options"] if "bestätig" in o.lower() and "trotzdem" not in o.lower()), None
+    )
+    assert confirm_option
+    status, body = post(f"/resume/{thread_id}", {"session_id": sid, "decision": confirm_option})
+    assert status == 200
+    own_listener.wait_for("interrupt_resolved", thread_id=thread_id, timeout=30.0)
+    own_listener.wait_for("message_appended", thread_id=thread_id, timeout=30.0)
+    own_listener.wait_for_after("status_changed", -1, thread_id=thread_id, status="result", timeout=30.0)
+
+    status, snap = get(f"/session/{sid}")
+    assert status == 200
+    assert snap["pending_suggestion"] == {"screen": "hub", "text": SUGGESTION_TEXTS["hub"]["displayed"]}, (
+        f"Vorschlag ist nach Ruhe der Session nicht zurückgekehrt - die gespeicherte "
+        f"Spalte wurde offenbar destruktiv gelöscht statt nur unterdrückt: {snap}"
+    )
+    print("[ok] Vorschlag taucht unverändert wieder auf, sobald die Session wieder ruhig ist")
+
+    own_listener.stop()
+
+
+def test_vorschlag_erscheint_klick_erzeugt_anfrage_seen_setzt_zurueck() -> None:
+    """Kompletter Weg: Screen melden -> Vorschlag erscheint (Event + GET
+    /session) -> ein zweites Melden desselben Screens bleibt wirkungslos
+    (genau einmal pro Screen pro Session) -> /seen -> Klick (neue Anfrage
+    + Nachricht mit suggestion_screen) -> suggestion_accepted geloggt ->
+    normale Bearbeitung läuft an."""
+    _, session = post("/session", {"access_code": ACCESS_CODE})
+    sid = session["session_id"]
+    own_listener = SSEListener(sid)
+    own_listener.start()
+
+    baseline = len(own_listener.events) - 1
+    status, body = post(f"/session/{sid}/screen", {"screen": "intranet"})
+    assert status == 200, f"POST /screen fehlgeschlagen: {status} {body}"
+
+    idx_suggestion, event = own_listener.wait_for_after(
+        "status_changed", baseline, status="suggestion", session_scoped=True, timeout=10.0
+    )
+    assert event["screen"] == "intranet"
+    assert event["text"] == SUGGESTION_TEXTS["intranet"]["displayed"]
+
+    log_entries = _read_log_entries()
+    shown_entries = [
+        e for e in log_entries
+        if e.get("category") == "suggestion_shown" and e.get("api_session_id") == sid and e.get("screen") == "intranet"
+    ]
+    assert len(shown_entries) == 1, f"erwartet genau 1 'suggestion_shown'-Log-Eintrag: {shown_entries}"
+    assert shown_entries[0].get("session_id") is None, (
+        f"session_id-Feld sollte bei suggestion_shown None sein (kein thread_id vorhanden), "
+        f"api_session_id trägt die eigentliche ID: {shown_entries[0]}"
+    )
+    print("[ok] suggestion_shown geloggt, session_id=None, api_session_id=Session-ID")
+
+    # Zweite Meldung desselben Screens -> kein zweiter Vorschlag, kein
+    # zweiter Log-Eintrag (genau einmal pro Screen pro Session).
+    baseline2 = len(own_listener.events) - 1
+    status, body = post(f"/session/{sid}/screen", {"screen": "intranet"})
+    assert status == 200
+    time.sleep(2)
+    duplicate_events = [
+        e for idx, e in enumerate(own_listener.events)
+        if idx > baseline2 and e.get("type") == "status_changed" and e.get("status") == "suggestion"
+    ]
+    assert not duplicate_events, f"Vorschlag ein zweites Mal ausgelöst: {duplicate_events}"
+    shown_entries_after = [
+        e for e in _read_log_entries()
+        if e.get("category") == "suggestion_shown" and e.get("api_session_id") == sid and e.get("screen") == "intranet"
+    ]
+    assert len(shown_entries_after) == 1, f"erwartet weiterhin genau 1 Eintrag (kein Duplikat): {shown_entries_after}"
+    print("[ok] zweite Meldung desselben Screens bleibt wirkungslos (einmal pro Screen pro Session)")
+
+    # Panel geöffnet -> /seen -> Dot zurück auf idle.
+    status, body = post(f"/session/{sid}/seen")
+    assert status == 200, f"POST /seen fehlgeschlagen: {status} {body}"
+    own_listener.wait_for_after(
+        "status_changed", idx_suggestion, status="idle", session_scoped=True, timeout=10.0
+    )
+    status, snap = get(f"/session/{sid}")
+    assert status == 200
+    assert snap.get("pending_suggestion") is None
+    print("[ok] /seen setzt pending_suggestion zurück, status_changed('idle') published")
+
+    # Klick: neue Anfrage + hinterlegter Text, suggestion_screen markiert.
+    status, anfrage = post(f"/session/{sid}/anfrage")
+    assert status == 200
+    thread_id = anfrage["thread_id"]
+
+    status, body = post(
+        f"/message/{thread_id}",
+        {
+            "session_id": sid,
+            "text": SUGGESTION_TEXTS["intranet"]["submitted"],
+            "suggestion_screen": "intranet",
+        },
+    )
+    assert status == 200, f"POST /message fehlgeschlagen: {status} {body}"
+
+    accepted_entries = [
+        e for e in _read_log_entries()
+        if e.get("category") == "suggestion_accepted" and e.get("api_session_id") == sid and e.get("screen") == "intranet"
+    ]
+    assert len(accepted_entries) == 1, f"erwartet genau 1 'suggestion_accepted'-Log-Eintrag: {accepted_entries}"
+    print("[ok] suggestion_accepted geloggt")
+
+    own_listener.wait_for("message_appended", thread_id=thread_id, timeout=30.0)
+    print("[ok] normale Bearbeitung läuft nach Klick an (message_appended für die neue Anfrage)")
+
+    own_listener.stop()
+
+
+def test_screen_meldung_chat_ist_stiller_noop_unbekannt_ist_422(session_id: str, listener: SSEListener) -> None:
+    """'chat' ist eine gültige Screen-ID (Literal-Typ), aber ohne Eintrag
+    in SUGGESTION_POLICY - stiller No-Op, kein Fehler (siehe Bericht an
+    die Nutzerin: dort Hilfe anzubieten ergibt keinen Sinn, man ist
+    ohnehin bei Lumi). Eine ECHT unbekannte Screen-ID ist dagegen ein
+    Klientenfehler (Tippfehler/Bug) und wird mit 422 abgelehnt, nicht
+    stillschweigend geschluckt."""
+    baseline = len(listener.events) - 1
+    status, body = post(f"/session/{session_id}/screen", {"screen": "chat"})
+    assert status == 200, f"'chat' sollte akzeptiert werden (200), kein Fehler: {status} {body}"
+    time.sleep(1)
+    suggestion_events = [
+        e for idx, e in enumerate(listener.events)
+        if idx > baseline and e.get("type") == "status_changed" and e.get("status") == "suggestion"
+    ]
+    assert not suggestion_events, f"'chat' hat fälschlich einen Vorschlag ausgelöst: {suggestion_events}"
+    print("[ok] 'chat': stiller No-Op, kein Vorschlag")
+
+    status, body = post(f"/session/{session_id}/screen", {"screen": "does-not-exist"})
+    assert status == 422, f"erwartet 422 für unbekannte Screen-ID, bekam {status}: {body}"
+    print("[ok] unbekannte Screen-ID wird mit 422 abgelehnt (Pydantic Literal)")
 
 
 def test_zwei_sessions_parallel() -> None:
@@ -755,14 +1268,22 @@ if __name__ == "__main__":
 
     thread_id = _run_test(test_neue_anfrage_und_titel, session_id, listener)
     _run_test(test_rationale, session_id, thread_id, listener)
-    _run_test(test_bestaetigung_liefert_ausfuehrungs_schritt, session_id, listener)
+    thread_id_bestaetigt = _run_test(test_bestaetigung_liefert_ausfuehrungs_schritt, session_id, listener)
+    _run_test(test_seen_setzt_result_auf_idle_zurueck, session_id, thread_id_bestaetigt, listener)
+    _run_test(test_mehrere_anfragen_result_gleichzeitig_in_session_snapshot, session_id, listener)
     _run_test(test_interrupt_raised_geloggt_kein_duplikat_bei_resume, session_id, listener)
     _run_test(test_ablehnung_kein_zweites_message_appended, session_id, listener)
     _run_test(test_wissensdatenbank_durchsucht_mit_quelle, session_id, listener)
     _run_test(test_eskalation_an_passende_person, session_id, listener)
     _run_test(test_medium_unterscheidet_ticket_und_kalender, session_id, listener)
+    _run_test(test_kalender_normalisierung_mehrere_formulierungen, session_id, listener)
     _run_test(test_context_trennung, session_id)
+    _run_test(test_screen_meldung_chat_ist_stiller_noop_unbekannt_ist_422, session_id, listener)
     listener.stop()
+
+    _run_test(test_vorschlag_faellt_aus_wenn_anfrage_laeuft_kontrast_zu_ruhiger_session)
+    _run_test(test_vorschlag_wird_bei_laufender_anfrage_lesezeitig_unterdrueckt_und_kehrt_zurueck)
+    _run_test(test_vorschlag_erscheint_klick_erzeugt_anfrage_seen_setzt_zurueck)
 
     _run_test(test_zwei_sessions_parallel)
 
