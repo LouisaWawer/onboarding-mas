@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 import uuid
 
 from fastapi import APIRouter, HTTPException, Request
@@ -24,6 +25,7 @@ from .graph_runner import (
     snapshot_interrupt_payload,
     to_resume_command,
 )
+from .rationale import build_rationale
 from .models import (
     AcceptedResponse,
     AnfrageOut,
@@ -117,6 +119,21 @@ async def create_session(body: CreateSessionRequest, request: Request) -> Sessio
         graph.update_state(config, state)
         title = make_title(template[0]["content"])
         store.create_anfrage(thread_id, session_id, title=title)
+
+        # Rationale-Spiegel auch für vorbelegte Anfragen (siehe Auftrag
+        # Punkt 3), sonst zeigt GET /thread hier rationale: null, obwohl
+        # eine live geführte Anfrage an derselben Stelle etwas anzeigen
+        # würde - ein für die Studie sichtbarer Unterschied. Dieselbe
+        # build_rationale()-Funktion wie beim Live-Lauf: die aktuellen
+        # Templates haben kein pending_action/last_search_results/
+        # last_colleague, ergeben also ehrlich {"steps": []} statt etwas
+        # Erfundenem - kein Sonderfall nötig, falls ein künftiges Template
+        # doch einen dieser Werte mitbringt.
+        last_message_index = len(template) - 1
+        rationale = build_rationale(state)
+        if rationale is not None:
+            store.save_message_rationale(thread_id, last_message_index, rationale)
+
         bus.publish_threadsafe(
             session_id, {"type": "anfrage_created", "thread_id": thread_id, "title": title}
         )
@@ -216,6 +233,13 @@ async def stream_events(session_id: str, request: Request) -> StreamingResponse:
                     continue
                 yield f"event: {event['type']}\ndata: {json.dumps(event, ensure_ascii=False)}\n\n"
         finally:
+            # Bewusst dauerhaft (kein Debug-Artefakt): macht sichtbar, wenn
+            # eine Anfrage-Verbindung während eines laufenden Graph-
+            # Durchgangs verschwindet (z.B. Seitenreload) - in der Studie
+            # der Normalfall, nicht der Fehlerfall. GET /thread liefert dem
+            # neu verbindenden Client den korrekten Zustand ohnehin aus dem
+            # Checkpoint nach, unabhängig von dieser Zeile.
+            print(f"[sse] t={time.time():.3f} session_id={session_id} unsubscribing", flush=True)
             await bus.unsubscribe(session_id, queue)
 
     headers = {

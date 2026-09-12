@@ -18,7 +18,7 @@ from langgraph.types import Command
 from .config import DEFAULT_CONTROL_LEVEL, DEFAULT_TRANSPARENCY_LEVEL
 from .events import SessionEventBus
 from .preseed import PRESEED_TEMPLATES
-from .rationale import build_rationale
+from .rationale import build_execution_rationale, build_rationale
 from .store import Store
 
 logger = logging.getLogger("api.graph_runner")
@@ -112,6 +112,20 @@ def build_preseed_states(thread_ids: list[str]) -> list[dict]:
     return states
 
 
+def _initial_message_count(*, graph: Any, config: dict, graph_input: Any, is_resume: bool) -> int:
+    """Anzahl Nachrichten, BEVOR dieser Lauf beginnt - Referenzwert für die
+    Längenwachstum-Erkennung in run_turn_in_background()."""
+    if is_resume:
+        # graph_input ist ein Command(resume=...), hat keine eigenen
+        # messages - der aktuelle Checkpoint-Stand ist die Referenz.
+        snapshot = graph.get_state(config)
+        values = snapshot.values or {}
+        return len(values.get("messages") or [])
+    # Frischer Turn: graph_input kommt aus build_fresh_turn_input() und
+    # enthält die neue User-Nachricht bereits vollständig.
+    return len(graph_input.get("messages") or [])
+
+
 def run_turn_in_background(
     *,
     graph: Any,
@@ -133,8 +147,19 @@ def run_turn_in_background(
     zurück (kein Reducer-Pattern), daher ist node_state hier bereits der
     VOLLSTÄNDIGE State-Snapshot direkt nach diesem Knoten, nicht nur ein
     Teil-Update.
+
+    Nachrichten-Erkennung über Längenwachstum von state["messages"]
+    (nicht über eine Node-Namen-Allowlist): pruefer_node hängt nur bei
+    verdict=="freigabe" an (bei "beanstandung" wächst die Liste nicht -
+    kein Sonderfall nötig, das ergibt sich von selbst), escalate_node
+    immer, execute_action_node bei tatsächlich ausgeführter Aktion. Jeder
+    künftige Knoten, der ebenfalls an messages anhängt, wird dadurch
+    automatisch erkannt, ohne dass diese Datei angepasst werden muss.
     """
     config = {"configurable": {"thread_id": thread_id}}
+    known_message_count = _initial_message_count(
+        graph=graph, config=config, graph_input=graph_input, is_resume=is_resume
+    )
 
     bus.publish_threadsafe(
         session_id, {"type": "status_changed", "thread_id": thread_id, "status": "working"}
@@ -169,14 +194,23 @@ def run_turn_in_background(
                 return
 
             for node_name, node_state in chunk.items():
-                _handle_node_output(
-                    node_name=node_name,
-                    node_state=node_state,
-                    store=store,
-                    bus=bus,
-                    session_id=session_id,
-                    thread_id=thread_id,
-                )
+                messages = node_state.get("messages") or []
+                if len(messages) <= known_message_count:
+                    continue
+                new_messages = messages[known_message_count:]
+                start_index = known_message_count
+                known_message_count = len(messages)
+                for offset, message in enumerate(new_messages):
+                    _publish_message(
+                        node_name=node_name,
+                        node_state=node_state,
+                        message=message,
+                        message_index=start_index + offset,
+                        store=store,
+                        bus=bus,
+                        session_id=session_id,
+                        thread_id=thread_id,
+                    )
 
         # Stream regulär zu Ende (kein interrupt -> kein return oben) ->
         # dieser Lauf ist fertig, egal ob END erreicht oder alle
@@ -191,34 +225,26 @@ def run_turn_in_background(
         )
 
 
-def _handle_node_output(
+def _publish_message(
     *,
     node_name: str,
     node_state: dict,
+    message: dict,
+    message_index: int,
     store: Store,
     bus: SessionEventBus,
     session_id: str,
     thread_id: str,
 ) -> None:
-    appended = False
-    if node_name == "pruefer" and node_state.get("pruefer_verdict") == "freigabe":
-        appended = True
-    elif node_name == "escalate":
-        appended = True
-    # node_name == "pruefer" mit verdict != "freigabe": beanstandeter
-    # Entwurf, draft_response bleibt bewusst unsichtbar (siehe pruefer_node)
-    # - kein Event, kein Spiegel-Eintrag.
+    # execute_action_node braucht die EIGENE, Ausführungs-Modus-Ableitung
+    # (state["last_executed_action"], nicht state["pending_action"] - siehe
+    # rationale.build_execution_rationale) - alle anderen Knoten (pruefer,
+    # escalate) nutzen weiterhin die allgemeine build_rationale().
+    if node_name == "execute_action":
+        rationale = build_execution_rationale(node_state)
+    else:
+        rationale = build_rationale(node_state)
 
-    if not appended:
-        return
-
-    messages = node_state.get("messages") or []
-    if not messages:
-        return
-
-    message_index = len(messages) - 1
-    message = messages[-1]
-    rationale = build_rationale(node_state)
     if rationale is not None:
         store.save_message_rationale(thread_id, message_index, rationale)
 
