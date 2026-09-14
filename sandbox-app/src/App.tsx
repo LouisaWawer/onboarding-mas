@@ -8,15 +8,17 @@ import Kalender from './screens/Kalender/Kalender'
 import Intranet from './screens/Intranet/Intranet'
 import { AppNotificationsProvider, useAppNotifications } from './state/AppNotifications'
 import { ChatStateProvider } from './state/ChatState'
+import { AgentStateProvider } from './state/AgentState'
+import { NavigationProvider, useNavigation } from './state/Navigation'
 import './App.css'
 
 function AppContent() {
-  const [active, setActive] = useState<SidebarItemId>('chat')
+  const { activeScreen, navigateTo } = useNavigation()
   const [hubResetToken, setHubResetToken] = useState(0)
   const { badges } = useAppNotifications()
 
   function handleNavigate(id: SidebarItemId) {
-    setActive(id)
+    navigateTo(id)
     // Sidebar-Icon dient als Home-Button für den Knowledge Hub: jeder Klick
     // (auch bei bereits aktivem Bereich) soll zur Landing-Ansicht zurückführen.
     if (id === 'hub') setHubResetToken((prev) => prev + 1)
@@ -26,15 +28,15 @@ function AppContent() {
     <div className="app-shell">
       <Topbar />
       <div className="app-shell__body">
-        <Sidebar active={active} onNavigate={handleNavigate} badges={badges} />
+        <Sidebar active={activeScreen} onNavigate={handleNavigate} badges={badges} />
         <main className="app-shell__screen">
-          {active === 'chat' ? (
+          {activeScreen === 'chat' ? (
             <Chat />
-          ) : active === 'hub' ? (
+          ) : activeScreen === 'hub' ? (
             <KnowledgeHub resetToken={hubResetToken} />
-          ) : active === 'tickets' ? (
+          ) : activeScreen === 'tickets' ? (
             <Tickets />
-          ) : active === 'calendar' ? (
+          ) : activeScreen === 'calendar' ? (
             <Kalender />
           ) : (
             <Intranet />
@@ -47,10 +49,14 @@ function AppContent() {
 
 export default function App() {
   return (
-    <AppNotificationsProvider>
-      <ChatStateProvider>
-        <AppContent />
-      </ChatStateProvider>
-    </AppNotificationsProvider>
+    <NavigationProvider>
+      <AgentStateProvider>
+        <AppNotificationsProvider>
+          <ChatStateProvider>
+            <AppContent />
+          </ChatStateProvider>
+        </AppNotificationsProvider>
+      </AgentStateProvider>
+    </NavigationProvider>
   )
 }
