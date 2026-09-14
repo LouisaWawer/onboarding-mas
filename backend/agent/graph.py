@@ -49,6 +49,47 @@ MAX_CORRECTION_ATTEMPTS = 2
 GENERIC_PHRASES = ["aus verschiedenen gründen", "wie du sicher weißt", "generell gilt"]
 
 # ---------------------------------------------------------------------------
+# Gemeinsamer Fähigkeiten-Baustein (siehe Bericht an die Nutzerin) - ERSETZT
+# die früher drei separaten "WICHTIG ZUR EIGENEN ROLLE"-Blöcke in
+# infrastructure_agent_node/scheduling_agent_node/info_agent_node. Grund für
+# den Umbau: jeder Knoten kannte bisher nur SEINE EIGENE Fähigkeit, keiner
+# hatte ein vollständiges Bild - das führte wiederholt dazu, dass Lumi sich
+# selbst kleinredete, wenn der "falsche" Knoten eine Anfrage bearbeitete
+# (z.B. info_agent bei einer Ticket-Bitte, ohne vom Ticket-Tool zu wissen).
+# Jetzt EINE Quelle, von JEDEM Knoten inkl. Supervisor genutzt (der bekommt
+# dadurch zum ersten Mal überhaupt einen system-Prompt bei der Zerlegung).
+#
+# Nur Tools, die über einen echten Graph-Pfad tatsächlich erreichbar sind -
+# siehe rationale.py für die Tools, die zwar in AVAILABLE_TOOLS (tools.py)
+# stehen, aber von keinem Knoten aufgerufen werden (send_message,
+# create/update_onboarding_plan) - die gehören NICHT hier rein, sonst
+# behauptet Lumi wieder eine Fähigkeit, die kein Codepfad einlöst.
+#
+# WICHTIG bei künftigen Änderungen: wird eine neue Aktion erreichbar (z.B.
+# der HR-Ticket-Pfad), MUSS dieser Baustein hier mit aktualisiert werden -
+# er ist die einzige Quelle, kein Duplikat woanders.
+LUMI_CAPABILITIES = (
+    "Das kannst du als Lumi tatsächlich selbst bewirken, nicht nur "
+    "beschreiben: Ein IT-Ticket anlegen (aktuell nur bei der IT-Abteilung) "
+    "- für Zugänge, Hardware, Software. Einen Termin im Kalender eintragen "
+    "- nur innerhalb der aktuell angezeigten Woche (Montag bis Freitag). "
+    "Die Wissensdatenbank (Knowledge Hub) und das Intranet durchsuchen und "
+    "gefundene Inhalte wiedergeben.\n\n"
+    "Das kannst du NICHT selbst: alles außerhalb dieser drei Aktionen - "
+    "dafür gibt es die Eskalation an eine echte Person, keine "
+    "Selbsthilfe-Anleitung und keinen erfundenen externen Weg (keine "
+    "E-Mail-Adressen, keine Telefonnummern, keine externen Portale - die "
+    "Sandbox kennt nur fünf Apps: Chat, Intranet, Knowledge Hub, Tickets, "
+    "Kalender).\n\n"
+    "Behaupte nie, eine der drei Aktionen oben nicht zu können, nur weil "
+    "du selbst (als der gerade zuständige Teil des Systems) sie in diesem "
+    "Moment nicht ausführst - eine andere Stelle im System kann dafür "
+    "zuständig sein. Biete umgekehrt auch nichts an, wofür es hier keine "
+    "der drei Aktionen gibt."
+)
+
+
+# ---------------------------------------------------------------------------
 # Tool-Schemas für STRUKTURIERTE Ausgaben (Anthropic Tool Use) - zu
 # unterscheiden von AVAILABLE_TOOLS in tools.py, die echte Sandbox-Aktionen
 # sind. Diese hier zwingen das Modell zu einem festen Antwortformat, statt
@@ -77,12 +118,78 @@ DECOMPOSE_TOOL = {
                         "category": {
                             "type": "string",
                             "enum": ["infrastructure", "info", "scheduling", "other"],
+                            # Bugfix (siehe Bericht an die Nutzerin): vorher rein
+                            # themenbasiert ("Urlaub" stand als Beispiel wörtlich
+                            # unter 'info', "Zugänge" unter 'infrastructure') -
+                            # das ließ eine Handlungsanfrage und eine Erklärfrage
+                            # zum selben Thema in dieselbe Kategorie fallen, obwohl
+                            # nur EINE davon einen handlungsfähigen Knoten hinter
+                            # sich hat. Jetzt Absicht ZUERST, Thema danach, plus
+                            # Beispielpaare direkt im Schema (few-shot-Anker,
+                            # zuverlässiger als Prosa allein) - siehe auch
+                            # criticality_policy.py: dieselbe Lehre ("Absicht
+                            # nicht am Thema ablesen"), hier als Formulierung statt
+                            # als feste Tabelle, weil eine Zerlegung in einen von
+                            # vier Werten ein enger gefasster, erzwungener
+                            # Tool-Use ist als freie Textgenerierung.
+                            #
+                            # Bugfix, zweite Runde (siehe Bericht an die
+                            # Nutzerin): "Absicht ZUERST" allein reichte nicht -
+                            # eine Gehaltsfrage ist formal eine Auskunftsfrage und
+                            # landete dadurch bei 'info', obwohl das Thema
+                            # überhaupt nicht in Lumis Zuständigkeit liegt (keine
+                            # Eskalation, info_agent sucht ins Leere). Absicht
+                            # (Frage vs. Handlung) und Zuständigkeit (gehört das
+                            # Thema überhaupt zu den drei Bereichen) sind zwei
+                            # UNABHÄNGIGE Achsen - Zuständigkeit muss deshalb VOR
+                            # Absicht geprüft werden, sonst rettet die Frageform
+                            # ein eigentlich zuständigkeitsfremdes Thema nach
+                            # 'info'.
                             "description": (
-                                "'infrastructure' = VPN/Zugänge/Hardware/Software, "
-                                "'info' = allgemeine organisatorische Fragen (Urlaub, "
-                                "Richtlinien, Onboarding-Themen), "
-                                "'scheduling' = Kalendertermine/Besprechungen eintragen, "
-                                "'other' = alles andere, auch wenn unklar"
+                                "Entscheide in ZWEI Schritten. SCHRITT 1 "
+                                "(Zuständigkeit, geht IMMER vor der Absichtsart): "
+                                "Liegt das Thema überhaupt in Lumis Bereich - "
+                                "Zugänge/Hardware/Software, Kalendertermine, oder "
+                                "allgemeine Onboarding-/Organisationsthemen "
+                                "(Urlaub, Richtlinien, Firmeninfos aus Knowledge "
+                                "Hub/Intranet)? Liegt es AUSSERHALB (z.B. Gehalt, "
+                                "Vertragsdetails, persönliche HR-Themen, alles "
+                                "ohne Bezug zu diesen Bereichen), ist es IMMER "
+                                "'other' - auch wenn die Nachricht als Frage oder "
+                                "Auskunftswunsch formuliert ist. Eine Frageform "
+                                "allein macht ein Thema nicht zuständig. SCHRITT 2 "
+                                "(nur innerhalb der Zuständigkeit aus Schritt 1): "
+                                "entscheide nach Absicht, danach nach Thema: "
+                                "'infrastructure' = eine KONKRETE AKTION zu "
+                                "Zugängen/Hardware/Software wird verlangt (z.B. "
+                                "'richte mir X ein', 'ich brauche Zugang zu Y', "
+                                "'kannst du das einrichten') - NICHT allgemeine "
+                                "Erklärungen, wie oder warum etwas funktioniert. "
+                                "'info' = eine ERKLÄRUNG oder Auskunft wird "
+                                "verlangt, UND das Thema liegt laut Schritt 1 in "
+                                "Lumis Zuständigkeit, WENN keine konkrete Aktion "
+                                "verlangt wird (z.B. 'wie funktioniert VPN hier?', "
+                                "'was ist die Urlaubsregelung?', allgemein: "
+                                "Urlaub, Richtlinien, Onboarding-Themen). "
+                                "'scheduling' = ein KONKRETER Termin soll "
+                                "eingetragen oder geändert werden (z.B. 'trag mir "
+                                "X ein', NICHT 'wie voll ist mein Kalender diese "
+                                "Woche'). "
+                                "'other' = außerhalb dieser drei Zuständigkeiten "
+                                "(siehe Schritt 1) oder unklare Absicht. "
+                                "Beispielpaar Zugänge: 'Richte mir VPN-Zugang ein' "
+                                "-> infrastructure. 'Wie funktioniert der "
+                                "VPN-Zugang hier?' -> info. "
+                                "Beispielpaar Kalender: 'Trag ein Meeting am "
+                                "Montag ein' -> scheduling. 'Was steht diese "
+                                "Woche in meinem Kalender?' -> info. "
+                                "Beispielpaar Zuständigkeit (Schritt 1, BEIDE "
+                                "Auskunftsfragen - entscheidend ist hier NICHT "
+                                "die Absicht, sondern ob das Thema überhaupt "
+                                "dazugehört): 'Was ist die Urlaubsregelung?' -> "
+                                "info (Thema gehört dazu). 'Was verdient ein "
+                                "Kollege?' -> other (Thema gehört nicht dazu, "
+                                "obwohl genauso als Frage formuliert)."
                             ),
                         },
                     },
@@ -304,6 +411,23 @@ def supervisor_node(state: OnboardingState) -> OnboardingState:
         # angelegt und damit tickets_count erhöht hat) und meldet fälschlich
         # "geändert", obwohl sich am Kontext DIESER Aktion nichts geändert hat.
         state["pending_action_snapshot"] = None
+        # Bugfix (siehe Bericht an die Nutzerin): dasselbe Prinzip wie oben,
+        # jetzt für die Rationale-Herkunftsfelder. last_search_results wird
+        # NUR von info_agent_node gesetzt, last_colleague NUR von
+        # escalate_node, last_executed_action NUR von execute_action_node
+        # (und dort auch nur, wenn tatsächlich etwas ausgeführt wurde) - läuft
+        # DIESER Teilschritt über einen anderen Knoten (z.B. infrastructure_
+        # agent), bleibt sonst der Wert eines VORHERIGEN Teilschritts stehen,
+        # und rationale.py (build_rationale) leitet daraus einen Schritt ab,
+        # der in DIESEM Teilschritt nie stattfand - inklusive einer
+        # Quellenangabe für eine Suche, die nie lief. Der kritischere der
+        # beiden Reset-Orte (siehe auch _base_state() in graph_runner.py):
+        # genau der Fall "eine Nachricht zerfällt in zwei Teilschritte, nur
+        # der erste sucht" lässt sich NICHT über einen reinen Per-Turn-Reset
+        # abfangen, weil beide Teilschritte im selben Turn laufen.
+        state["last_search_results"] = None
+        state["last_colleague"] = None
+        state["last_executed_action"] = None
         state["subtask_index"] += 1
         if state["subtask_index"] >= len(state["subtasks"]):
             state["active_agent"] = "__end__"
@@ -323,6 +447,17 @@ def supervisor_node(state: OnboardingState) -> OnboardingState:
     response = client.messages.create(
         model="claude-sonnet-4-6",
         max_tokens=300,
+        # Erster system-Prompt an dieser Stelle überhaupt (siehe Bericht an
+        # die Nutzerin) - der Supervisor kannte Lumis Fähigkeiten bisher gar
+        # nicht, klassifizierte rein nach Thema (siehe DECOMPOSE_TOOL-Enum).
+        system=(
+            LUMI_CAPABILITIES
+            + "\n\nNutze dieses Wissen über deine eigenen Fähigkeiten bei "
+            "der Zuordnung: eine Bitte, tatsächlich etwas für die "
+            "Nutzer:in zu TUN (nicht nur zu erklären), gehört zu der "
+            "Kategorie, deren Aktion oben beschrieben ist - unabhängig "
+            "vom Thema."
+        ),
         messages=state["messages"],
         tools=[DECOMPOSE_TOOL],
         tool_choice={"type": "tool", "name": "decompose_request"},
@@ -367,6 +502,53 @@ def infrastructure_agent_node(state: OnboardingState) -> OnboardingState:
         f"separat behandelt - gehe NICHT darauf ein, auch nicht kurz erwähnend."
     )
 
+    # Gemeinsamer Fähigkeiten-Baustein statt eines lokalen "WICHTIG ZUR
+    # EIGENEN ROLLE"-Blocks (siehe Bericht an die Nutzerin, LUMI_CAPABILITIES
+    # oben) - der Entwurf hier und die strukturierte Ticket-Extraktion weiter
+    # unten sind zwei bewusst UNABHÄNGIGE Modellaufrufe; ohne dieses Wissen
+    # kann der Entwurf behaupten, den Zugang nicht selbst einrichten zu
+    # können, während die Extraktion im selben Lauf genau dafür ein Ticket
+    # anlegt.
+    system_prompt += "\n\n" + LUMI_CAPABILITIES
+
+    # Bugfix, zweite Runde (siehe Bericht an die Nutzerin): der vorige Fix
+    # verhinderte den Widerspruch "das kann ich nicht", jetzt trat ein
+    # milderer auf - der Entwurf stellt eine Rückfrage, während die separate
+    # Extraktion (weiter unten) trotzdem schon ein fertiges Ticket
+    # vorschlägt. Beide Hälften dieser Anweisung zusammen sorgen dafür, dass
+    # der Entwurf entweder ganz klar VORSCHLÄGT oder ganz klar FRAGT, nie
+    # beides gleichzeitig behauptet.
+    #
+    # Bugfix, dritte Runde (siehe Bericht an die Nutzerin): die Regel selbst
+    # war richtig, ihre Beispiele ("welches Gerät, welche Berechtigung")
+    # nicht - keines davon ist im Tool-Schema (PROPOSE_TICKET_TOOL) je
+    # erforderlich, needed ist das einzige Pflichtfeld, subject/reason haben
+    # Fallbacks. Das Modell generalisierte von diesen Beispielen trotzdem
+    # auf praktisch jede Ticket-Anfrage und fragte fast immer zuerst nach -
+    # jede Aktion wurde dadurch zweistufig, ohne dass die Rückfrage etwas
+    # tatsächlich Blockierendes betraf. Ersetzt durch die Bedingung selbst
+    # (ohne Info kein Tool-Aufruf möglich), ohne plausibel klingende, aber
+    # tatsächlich unnötige Beispiele.
+    system_prompt += (
+        f"\n\nWICHTIG ZU RÜCKFRAGEN: Frag nur dann nach, wenn OHNE die "
+        f"fehlende Information gar kein Ticket vorgeschlagen werden kann - "
+        f"das ist bei einer IT-Anfrage praktisch nie der Fall: Betreff und "
+        f"Begründung lassen sich immer sinnvoll aus der Anfrage ableiten, "
+        f"auch ohne Detail wie Gerät oder Berechtigungsstufe - das kann im "
+        f"Ticket offen bleiben, die IT klärt Details bei Bedarf direkt dort. "
+        f"Im Regelfall schlägst du das Ticket also direkt vor, ohne "
+        f"vorherige Rückfrage. Eine offene Rückfrage (nur im seltenen "
+        f"echten Blockierfall) und die Beschreibung eines bereits "
+        f"vorgeschlagenen/laufenden Tickets schließen sich gegenseitig aus - "
+        f"schreib nie beides in dieselbe Antwort, und formuliere bei einer "
+        f"Rückfrage NICHT so, als sei das Ticket schon unterwegs oder "
+        f"abgeschlossen (kein \"das lege ich gleich an\"/\"das geht raus, "
+        f"sobald...\"). Frag außerdem nie nach Dingen, die im Szenario "
+        f"längst bekannt sind: du kennst die Nutzer:in (sie ist bereits "
+        f"seit einigen Tagen im Onboarding) und die Kolleg:innen - Name "
+        f"oder Startdatum musst du nicht erfragen."
+    )
+
     if state.get("pruefer_issues"):
         system_prompt += (
             "\n\nDeine letzte Antwort wurde beanstandet: "
@@ -408,7 +590,15 @@ def infrastructure_agent_node(state: OnboardingState) -> OnboardingState:
         max_tokens=200,
         system=(
             "Entscheide anhand der Konversation, ob ein IT-Ticket für die "
-            "aktuelle Anfrage vorgeschlagen werden soll."
+            "aktuelle Anfrage vorgeschlagen werden soll. WICHTIG: Der Entwurf "
+            "oben (letzte Assistant-Nachricht) ist Teil dieser Konversation - "
+            "enthält er eine offene, noch unbeantwortete Rückfrage, OHNE deren "
+            "Antwort gar kein Ticket vorgeschlagen werden kann, ist noch KEIN "
+            "Ticket vorzuschlagen (needed=false). Das ist der SELTENE "
+            "Ausnahmefall, nicht der Normalfall: fehlende Detailangaben wie "
+            "Gerät oder Berechtigungsstufe verhindern kein Ticket (subject/"
+            "reason lassen sich immer aus der Anfrage ableiten) - in diesem "
+            "Fall bleibt needed=true."
         ),
         messages=extraction_messages,
         tools=[PROPOSE_TICKET_TOOL],
@@ -450,17 +640,49 @@ def info_agent_node(state: OnboardingState) -> OnboardingState:
         f"separat behandelt - gehe NICHT darauf ein, auch nicht kurz erwähnend."
     )
 
+    # Gleiche Regel wie beim infrastructure_agent/scheduling_agent (siehe
+    # Bericht an die Nutzerin) - hier nur die "kennt die Nutzer:in bereits"-
+    # Hälfte, der Rückfrage-gegen-Vorschlag-Widerspruch kann hier nicht
+    # auftreten, info_agent schlägt nie eine Aktion vor (pending_action
+    # bleibt immer None, siehe unten).
+    system_prompt += (
+        f"\n\nFrag nie nach Dingen, die im Szenario längst bekannt sind: du "
+        f"kennst die Nutzer:in (sie ist bereits seit einigen Tagen im "
+        f"Onboarding) und die Kolleg:innen - Name oder Startdatum musst du "
+        f"nicht erfragen."
+    )
+
+    # Gemeinsamer Fähigkeiten-Baustein (siehe Bericht an die Nutzerin,
+    # LUMI_CAPABILITIES oben) - bewusst UNBEDINGT, nicht mehr nur im
+    # if results:-Zweig: die frühere Fassung ließ info_agent nur dann wissen,
+    # dass Lumi z.B. Tickets anlegen kann, wenn zufällig ein passender
+    # Wissensartikel gefunden wurde. Genau das führte dazu, dass sie ihre
+    # eigenen Fähigkeiten aus dem Artikeltext ableitete, statt sie zu
+    # kennen ("gibt mir der verfügbare Inhalt keinen Hinweis darauf...").
+    system_prompt += "\n\n" + LUMI_CAPABILITIES
+
     if results:
-        docs_context = "\n".join(
-            f"- {r['title']}: {r.get('summary', '')}" for r in results
+        # Bugfix (siehe Bericht an die Nutzerin): body statt summary - die
+        # eine Satz-Zusammenfassung reichte für Detailfragen (z.B.
+        # Resturlaub-Frist) strukturell nicht aus, nicht weil die Suche
+        # versagte, sondern weil die Information nie im Kontext ankam.
+        # summary bleibt für die Suchgewichtung selbst erhalten (siehe
+        # knowledge_data.py), nur hier im Prompt-Kontext wird jetzt body
+        # bevorzugt - INTRANET_POSTS haben kein body-Feld (Ankündigungen
+        # sind bewusst kurz), fallen also auf summary zurück.
+        docs_context = "\n\n".join(
+            f"### {r['title']}\n{r.get('body') or r.get('summary', '')}" for r in results
         )
         system_prompt += (
             f"\n\nGefundene relevante Inhalte aus Knowledge Hub/Intranet:\n"
             f"{docs_context}\nNutze diese als Grundlage für deine Antwort, "
-            f"erfinde keine Details, die dort nicht stehen. Nenne am Ende "
-            f"deiner Antwort explizit, aus welchem Dokument/Artikel die "
-            f"Information stammt (Titel nennen, z.B. \"(Quelle: [Titel])\"), "
-            f"damit die Nutzer:in die Angabe selbst nachlesen kann."
+            f"erfinde keine Details, die dort nicht stehen. "
+            f"VERBOTEN: eine Quellenangabe im Text zu nennen - in KEINER Form, "
+            f"weder als \"(Quelle: ...)\" noch kursiv, noch als Fußnote, noch "
+            f"als abschließender Satz. Deine Antwort endet mit dem letzten "
+            f"inhaltlichen Satz, sonst nichts. Die Oberfläche zeigt Titel und "
+            f"Fundstelle bereits zuverlässig in einem eigenen Block an - das "
+            f"ist die einzige Quellenangabe, die die Nutzer:in sieht."
         )
     else:
         system_prompt += (
@@ -508,6 +730,44 @@ def scheduling_agent_node(state: OnboardingState) -> OnboardingState:
         f"folgenden Teilschritt: \"{state['current_task']}\". Falls die "
         f"ursprüngliche Nachricht weitere Anliegen enthält, werden diese "
         f"separat behandelt - gehe NICHT darauf ein, auch nicht kurz erwähnend."
+    )
+
+    # Gemeinsamer Fähigkeiten-Baustein statt eines lokalen "WICHTIG ZUR
+    # EIGENEN ROLLE"-Blocks (siehe Bericht an die Nutzerin, LUMI_CAPABILITIES
+    # oben) - der Entwurf hier und die strukturierte Termin-Extraktion weiter
+    # unten sind zwei bewusst UNABHÄNGIGE Modellaufrufe; ohne dieses Wissen
+    # kann der Entwurf behaupten, den Termin nicht selbst eintragen zu
+    # können, während die Extraktion im selben Lauf genau das tut.
+    system_prompt += "\n\n" + LUMI_CAPABILITIES
+
+    # Bugfix, zweite Runde (siehe Bericht an die Nutzerin, gleiches Muster
+    # wie beim infrastructure_agent): verhindert, dass der Entwurf eine
+    # Rückfrage stellt, während die separate Extraktion (weiter unten)
+    # trotzdem schon einen fertigen Termin vorschlägt.
+    #
+    # Bugfix, dritte Runde (siehe Bericht an die Nutzerin, gleiche Ursache
+    # wie beim infrastructure_agent): "wer teilnimmt, welcher Raum" sind im
+    # Tool-Schema (PROPOSE_CALENDAR_EVENT_TOOL) nicht erforderlich -
+    # location/organizer haben Fallbacks ("Online"/"Lumi"). Der einzige
+    # echte Blocker ist ein Termin, der sich ohne erkennbaren Wochentag oder
+    # erkennbare Uhrzeit gar nicht ins Sandbox-Raster eintragen lässt.
+    system_prompt += (
+        f"\n\nWICHTIG ZU RÜCKFRAGEN: Frag nur dann nach, wenn OHNE die "
+        f"fehlende Information gar kein Termin eingetragen werden kann - "
+        f"das ist nur der Fall, wenn kein erkennbarer Wochentag oder keine "
+        f"erkennbare Uhrzeit aus der Anfrage hervorgeht. Wer teilnimmt oder "
+        f"welcher Raum gemeint ist, blockiert den Termin NICHT (Ort/"
+        f"Organisator:in haben sinnvolle Standardwerte) - im Regelfall "
+        f"schlägst du den Termin also direkt vor, ohne vorherige Rückfrage. "
+        f"Eine offene Rückfrage (nur im seltenen echten Blockierfall) und "
+        f"die Beschreibung eines bereits vorgeschlagenen/eingetragenen "
+        f"Termins schließen sich gegenseitig aus - schreib nie beides in "
+        f"dieselbe Antwort, und formuliere bei einer Rückfrage NICHT so, "
+        f"als sei der Termin schon eingetragen oder unterwegs. Frag "
+        f"außerdem nie nach Dingen, die im Szenario längst bekannt sind: du "
+        f"kennst die Nutzer:in (sie ist bereits seit einigen Tagen im "
+        f"Onboarding) und die Kolleg:innen - Name oder Startdatum musst du "
+        f"nicht erfragen."
     )
 
     if state.get("pruefer_issues"):
@@ -565,7 +825,15 @@ def scheduling_agent_node(state: OnboardingState) -> OnboardingState:
         max_tokens=200,
         system=(
             "Entscheide anhand der Konversation, ob ein Kalendertermin für die "
-            f"aktuelle Anfrage vorgeschlagen werden soll. {_sandbox_today_instruction()}"
+            f"aktuelle Anfrage vorgeschlagen werden soll. {_sandbox_today_instruction()} "
+            "WICHTIG: Der Entwurf oben (letzte Assistant-Nachricht) ist Teil "
+            "dieser Konversation - enthält er eine offene, noch unbeantwortete "
+            "Rückfrage, OHNE deren Antwort gar kein Termin eingetragen werden "
+            "kann (kein erkennbarer Wochentag oder keine erkennbare Uhrzeit), "
+            "ist noch KEIN Termin vorzuschlagen (needed=false). Das ist der "
+            "SELTENE Ausnahmefall, nicht der Normalfall: fehlende Angaben wie "
+            "Teilnehmer:innen oder Raum verhindern keinen Termin (location/"
+            "organizer haben Fallbacks) - in diesem Fall bleibt needed=true."
         ),
         messages=extraction_messages,
         tools=[PROPOSE_CALENDAR_EVENT_TOOL],
@@ -936,6 +1204,16 @@ def escalate_node(state: OnboardingState) -> OnboardingState:
             else "Erkläre, dass dafür aktuell kein spezifischer Kontakt bekannt ist."
         )
         instruction = ESCALATION_PROMPT + "\n\n" + colleague_hint
+
+    # Bugfix (siehe Bericht an die Nutzerin): escalate_node baut sein
+    # instruction komplett separat aus ESCALATION_PROMPT auf, nutzt weder
+    # build_system_prompt() noch LUMI_CAPABILITIES - war der einzige der
+    # fünf Text-erzeugenden Knoten, der die Sandbox-Grenzen-Regel nie sah
+    # (deshalb der Verweis auf "E-Mail, Telefon" bei einer Erreichbarkeits-
+    # Eskalation). Voller Baustein, nicht nur der Grenzen-Teil - vermeidet
+    # einen zweiten, separat zu pflegenden Auszug (siehe LUMI_CAPABILITIES-
+    # Docstring: "eine Quelle, kein Duplikat woanders").
+    instruction += "\n\n" + LUMI_CAPABILITIES
 
     # Fokus-Anweisung, wie beim Infrastructure-Agenten: nur den aktuellen
     # Teilschritt ansprechen, bereits behandelte Themen nicht wiederholen.

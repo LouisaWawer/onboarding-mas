@@ -211,12 +211,78 @@ class SSEListener:
 
 # --- gemeinsamer Vorlauf für die Resume-Tests -------------------------------
 
+DEFAULT_FALLBACK_ANSWER = "Kein bestimmtes Gerät oder Detail - entscheide einfach, was sinnvoll ist."
 
-def _start_anfrage_and_wait_for_interrupt(session_id: str, listener: SSEListener, text: str) -> tuple[str, dict]:
+
+def _wait_for_confirmation_or_answer_followup(
+    session_id: str,
+    thread_id: str,
+    listener: SSEListener,
+    fallback_answer: str,
+    *,
+    _retried: bool = False,
+) -> dict:
+    """Wartet auf den Bestätigungszustand nach einer gesendeten Nachricht -
+    entweder DIREKT (status 'waiting', ein pending_action wurde
+    vorgeschlagen) ODER über eine Rückfrage-Runde (status 'result' OHNE
+    interrupt: der Sub-Agent hat needed=false zurückgegeben, weil ihm nach
+    der WICHTIG-ZU-RÜCKFRAGEN-Regel etwas wirklich Blockierendes fehlte,
+    siehe graph.py). Seit der Zuspitzung dieser Regel auf "ohne Info kein
+    Tool-Aufruf möglich" ist der zweite Pfad der SELTENE Fall, nicht mehr
+    der übliche - er bleibt aber möglich (z.B. Kalender ohne erkennbaren
+    Wochentag) und muss deshalb weiterhin funktionieren, nicht nur der
+    direkte Pfad (siehe Bericht an die Nutzerin: 19->9 grüne Tests, als die
+    Rückfrage-Regel plötzlich fast immer griff und jeder Test nur den
+    direkten Pfad kannte).
+
+    Im Rückfrage-Fall wird `fallback_answer` als Folgenachricht auf
+    DIESELBE thread_id gesendet und genau EINMAL erneut gewartet
+    (_retried) - kommt danach wieder 'result' ohne interrupt, ist das ein
+    echter Fehler (z.B. eine Rückfrage-Schleife), kein zweiter
+    automatischer Versuch."""
+    # 120s: deckelt den Worst Case ab (MAX_CORRECTION_ATTEMPTS=2 in graph.py,
+    # gemessen ~50-60s für 2 Korrekturrunden, siehe Bericht an die Nutzerin) -
+    # mit Reserve für allgemeine Latenzschwankungen.
+    loop_start = time.time()
+    reached = None
+    deadline = loop_start + 120
+    while time.time() < deadline:
+        statuses = {e["status"] for e in listener.all_of("status_changed", thread_id=thread_id)}
+        if "waiting" in statuses:
+            reached = "waiting"
+            break
+        if "result" in statuses:
+            reached = "result"
+            break
+        time.sleep(0.3)
+    assert reached, f"weder 'waiting' noch 'result' nach {time.time() - loop_start:.1f}s (thread_id={thread_id})"
+
+    if reached == "waiting":
+        return listener.wait_for("interrupt_pending", thread_id=thread_id, timeout=5.0)
+
+    assert not _retried, (
+        f"erneut 'result' ohne Bestätigungsvorschlag NACH Beantwortung der "
+        f"Rückfrage - kein Vorschlag zustande gekommen (thread_id={thread_id})"
+    )
+    status, body = post(f"/message/{thread_id}", {"session_id": session_id, "text": fallback_answer})
+    assert status == 200, f"POST /message (Rückfrage-Antwort) fehlgeschlagen: {status} {body}"
+    return _wait_for_confirmation_or_answer_followup(
+        session_id, thread_id, listener, fallback_answer, _retried=True
+    )
+
+
+def _start_anfrage_and_wait_for_interrupt(
+    session_id: str,
+    listener: SSEListener,
+    text: str,
+    fallback_answer: str = DEFAULT_FALLBACK_ANSWER,
+) -> tuple[str, dict]:
     """Legt eine neue Anfrage an, sendet `text`, wartet bis der Graph an
-    einem interrupt() wartet (status "waiting" + interrupt_pending-Event).
-    Gibt (thread_id, interrupt_pending-Event) zurück - gemeinsamer Vorlauf
-    für die Bestätigungs- und die Ablehnungs-Prüfung."""
+    einem interrupt() wartet (status "waiting" + interrupt_pending-Event) -
+    direkt ODER nach einer Rückfrage-Runde (siehe
+    _wait_for_confirmation_or_answer_followup). Gibt (thread_id,
+    interrupt_pending-Event) zurück - gemeinsamer Vorlauf für die
+    Bestätigungs- und die Ablehnungs-Prüfung."""
     status, body = post(f"/session/{session_id}/anfrage")
     assert status == 200
     thread_id = body["thread_id"]
@@ -224,20 +290,7 @@ def _start_anfrage_and_wait_for_interrupt(session_id: str, listener: SSEListener
     status, body = post(f"/message/{thread_id}", {"session_id": session_id, "text": text})
     assert status == 200, f"POST /message fehlgeschlagen: {status} {body}"
 
-    # 120s: deckelt den Worst Case ab (MAX_CORRECTION_ATTEMPTS=2 in graph.py,
-    # gemessen ~50-60s für 2 Korrekturrunden, siehe Bericht an die Nutzerin) -
-    # mit Reserve für allgemeine Latenzschwankungen.
-    loop_start = time.time()
-    waiting_seen = False
-    deadline = loop_start + 120
-    while time.time() < deadline:
-        if any(e["status"] == "waiting" for e in listener.all_of("status_changed", thread_id=thread_id)):
-            waiting_seen = True
-            break
-        time.sleep(0.3)
-    assert waiting_seen, f"kein 'waiting' nach {time.time() - loop_start:.1f}s"
-
-    interrupt_event = listener.wait_for("interrupt_pending", thread_id=thread_id, timeout=5.0)
+    interrupt_event = _wait_for_confirmation_or_answer_followup(session_id, thread_id, listener, fallback_answer)
     return thread_id, interrupt_event
 
 
@@ -300,20 +353,9 @@ def test_neue_anfrage_und_titel(session_id: str, listener: SSEListener) -> str:
     working = listener.wait_for("status_changed", thread_id=thread_id)
     assert working["status"] == "working", working
 
-    # 120s: deckelt den Worst Case ab (MAX_CORRECTION_ATTEMPTS=2 in graph.py,
-    # gemessen ~50-60s für 2 Korrekturrunden, siehe Bericht an die Nutzerin) -
-    # mit Reserve für allgemeine Latenzschwankungen.
-    loop_start = time.time()
-    waiting_seen = False
-    deadline = loop_start + 120
-    while time.time() < deadline:
-        if any(e["status"] == "waiting" for e in listener.all_of("status_changed", thread_id=thread_id)):
-            waiting_seen = True
-            break
-        time.sleep(0.3)
-    assert waiting_seen, f"kein 'waiting' nach {time.time() - loop_start:.1f}s"
-
-    interrupt_event = listener.wait_for("interrupt_pending", thread_id=thread_id)
+    interrupt_event = _wait_for_confirmation_or_answer_followup(
+        session_id, thread_id, listener, DEFAULT_FALLBACK_ANSWER
+    )
     print(f"[ok] Titel gesetzt, working->waiting, interrupt_pending: {interrupt_event['proposal']}")
 
     status, snap = get(f"/thread/{thread_id}?session_id={session_id}")

@@ -91,6 +91,18 @@ def _base_state(
     state["session_id"] trägt hier bewusst die LangGraph-thread_id (=
     "Anfrage"), NICHT die API-Session-ID - siehe Bericht an die Nutzerin,
     das ist eine reine Namensüberschneidung zwischen den beiden Ebenen.
+
+    Bugfix (siehe Bericht an die Nutzerin): last_search_results/
+    last_colleague/last_executed_action fehlten hier - graph.stream() merged
+    das übergebene Dict nur PARTIELL in den bereits gecheckpointeten State
+    (kein Reducer-Pattern, jeder nicht enthaltene Key behält seinen alten
+    Wert), ein fehlender Key räumt also NICHTS auf. Ohne diese drei Zeilen
+    hätte ein neuer Turn ihre Werte aus einem BELIEBIG früheren Turn desselben
+    Threads geerbt, und rationale.py hätte daraus einen Schritt abgeleitet,
+    der in diesem Durchlauf nie stattfand - der schlimmste Fehlertyp an
+    dieser Stelle, weil er eine Quellenangabe für etwas Nichtstattgefundenes
+    zeigt. Der zweite, kritischere Reset (zwischen Teilschritten DERSELBEN
+    Nachricht) sitzt in supervisor_node, check_target=="next_subtask".
     """
     return {
         "messages": messages,
@@ -113,6 +125,9 @@ def _base_state(
         "dot_status": "idle",
         "sandbox_state": sandbox_state,
         "channel": channel,
+        "last_search_results": None,
+        "last_colleague": None,
+        "last_executed_action": None,
     }
 
 
