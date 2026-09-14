@@ -39,7 +39,6 @@
   padding: 10px 14px;
   font-size: 15px;
   line-height: normal;
-  white-space: pre-wrap;
   word-break: break-word;
 }
 
@@ -53,4 +52,85 @@
   background-color: var(--color-accent);
   color: var(--color-overlay);
   border-radius: 18px 18px 4px 18px;
+}
+
+/* Markdown-Inhalt (react-markdown, siehe MessageBox.tsx) - eigene Absätze
+   statt white-space:pre-wrap auf Rohtext, Listen NICHT mit
+   Browser-Default-Einrückung/-Aufzählungszeichen, sondern an die
+   Bubble-Typografie angeglichen (siehe Bericht an die Nutzerin). */
+.message-box__bubble p {
+  margin: 0 0 8px;
+}
+
+.message-box__bubble p:last-child {
+  margin-bottom: 0;
+}
+
+.message-box__bubble ul,
+.message-box__bubble ol {
+  margin: 4px 0 8px;
+  padding-left: 20px;
+}
+
+.message-box__bubble ul:last-child,
+.message-box__bubble ol:last-child {
+  margin-bottom: 0;
+}
+
+.message-box__bubble li {
+  margin-bottom: 4px;
+}
+
+.message-box__bubble li:last-child {
+  margin-bottom: 0;
+}
+
+.message-box__bubble li > p {
+  margin: 0;
+}
+
+.message-box__bubble strong {
+  font-weight: 700;
+}
+
+.message-box__bubble code {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 0.9em;
+  padding: 1px 4px;
+  border-radius: 4px;
+}
+
+.message-box__bubble--in code {
+  background-color: var(--color-border);
+}
+
+.message-box__bubble--out code {
+  background-color: rgba(255, 255, 255, 0.2);
+}
+
+.message-box__bubble pre {
+  margin: 4px 0 8px;
+  padding: 8px;
+  border-radius: 6px;
+  overflow-x: auto;
+}
+
+.message-box__bubble--in pre {
+  background-color: var(--color-border);
+}
+
+.message-box__bubble--out pre {
+  background-color: rgba(255, 255, 255, 0.15);
+}
+
+.message-box__bubble pre code {
+  background: none;
+  padding: 0;
+}
+
+/* Kein <a> mehr im DOM (siehe MessageBox.tsx) - der Ersatz-<span> sieht
+   bewusst wie normaler Text aus, keine Unterstreichung/Farbe, die
+   Klickbarkeit vortäuschen würde. */
+.message-box__inline-link {
+  color: inherit;
 }

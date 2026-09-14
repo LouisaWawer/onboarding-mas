@@ -142,17 +142,6 @@
   color: var(--color-faded);
 }
 
-.intranet__report {
-  margin-left: auto;
-  border: none;
-  background: none;
-  color: var(--color-danger);
-  font-size: 12px;
-  font-family: 'Inter', system-ui, sans-serif;
-  cursor: pointer;
-  text-decoration: underline;
-}
-
 .intranet__empty {
   padding: 32px 0;
   display: flex;

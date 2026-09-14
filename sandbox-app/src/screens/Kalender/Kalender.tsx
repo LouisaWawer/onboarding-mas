@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { CaretLeft, CaretRight } from '@phosphor-icons/react'
 import PushButton from '../../components/PushButton/PushButton'
-import { useSendToLumi } from '../../state/ChatState'
+import { useSendToLumi } from '../../state/AgentState'
 import { WEEKDAYS, HOURS, initialAppointments } from './kalenderData'
 import './Kalender.css'
 
@@ -51,10 +51,9 @@ export default function Kalender() {
       : `${MONTH_NAMES[weekStart.getMonth()]} / ${MONTH_NAMES[weekEnd.getMonth()]}`
 
   function requestNewMeeting() {
-    sendToLumi(
-      'Ich möchte eine neue Besprechung planen',
-      'Gerne! Damit ich das für dich einträgst: Wann soll das Meeting stattfinden, wer soll dabei sein, und hast du schon einen Raum oder ein Format (vor Ort/online) im Kopf?',
-    )
+    // Kein gescripteter zweiter Parameter mehr - die Antwort kommt jetzt
+    // vom echten Agenten (siehe state/AgentState.tsx, useSendToLumi()).
+    sendToLumi('Ich möchte eine neue Besprechung planen')
   }
 
   return (

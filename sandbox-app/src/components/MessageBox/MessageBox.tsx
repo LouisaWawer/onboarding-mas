@@ -1,3 +1,5 @@
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import type { AvatarColor } from '../Avatar/Avatar'
 import type { StatusTone } from '../StatusIndicator/StatusIndicator'
 import UserWithStatus from '../UserWithStatus/UserWithStatus'
@@ -14,6 +16,25 @@ type MessageBoxProps = {
   initials?: string
   isLumi?: boolean
   presence?: StatusTone
+}
+
+/**
+ * Nur http(s)/mailto durchlassen, alles andere (insbesondere javascript:)
+ * verwirft urlTransform zu einem leeren String - reine Vorsorge, siehe
+ * Moduldocstring unten. Greift praktisch nie, weil der a-Tag ohnehin durch
+ * einen span ersetzt wird (kein href mehr im DOM), aber billig genug, um
+ * es trotzdem zu setzen.
+ */
+function sanitizeUrl(url: string): string {
+  try {
+    const parsed = new URL(url, 'https://example.invalid')
+    if (parsed.protocol === 'http:' || parsed.protocol === 'https:' || parsed.protocol === 'mailto:') {
+      return url
+    }
+  } catch {
+    // ungültige/relative URL - fällt durch auf den leeren String unten
+  }
+  return ''
 }
 
 export default function MessageBox({
@@ -47,7 +68,22 @@ export default function MessageBox({
           </span>
         )}
         <div className={`message-box__bubble ${isOut ? 'message-box__bubble--out' : 'message-box__bubble--in'}`}>
-          {message}
+          {/* Das Modell formatiert seine Antworten in Markdown (siehe
+              Bericht an die Nutzerin) - kein Rohtext mehr. Bewusst OHNE
+              rehype-raw: eingebettetes HTML im Modelltext wird dadurch als
+              Text angezeigt, nie ausgeführt. Links werden NICHT als <a>
+              gerendert (Sandbox-Fiktion: es gibt nichts, wohin ein Link
+              führen könnte, ein toter/externer Klick würde die Testperson
+              aus der Aufgabe reißen), sondern als reiner <span>. */}
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            urlTransform={sanitizeUrl}
+            components={{
+              a: ({ children }) => <span className="message-box__inline-link">{children}</span>,
+            }}
+          >
+            {message}
+          </ReactMarkdown>
         </div>
       </div>
     </div>

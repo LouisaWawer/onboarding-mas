@@ -64,21 +64,21 @@ export type DirectoryEntry = {
   initials?: string
   avatarColor?: AvatarColor
   isLumi?: boolean
-  /** Markiert den absichtlich veralteten Eintrag für die Override-Aufgabe (siehe docs/Fiktive_Firma_und_Kollegen.md). */
-  outdated?: boolean
 }
 
 /*
  * 1:1 aus docs/Fiktive_Firma_und_Kollegen.md. Tom Bauers Eintrag zeigt
- * bewusst die veraltete Rolle "Marketing" statt "Vertrieb, Buddy" – das
- * ist der in den Docs beschriebene, absichtlich korrigierbare/veraltete
- * Eintrag für die Override-Aufgabe (nicht mein Fehler).
+ * weiterhin die veraltete Rolle "Marketing" statt "Vertrieb, Buddy" - das
+ * "Angaben nicht aktuell? Melden"-Override dafür ist entfernt (nicht im
+ * Studienskript vorgesehen, siehe Bericht an die Nutzerin), die veraltete
+ * Rolle selbst bleibt unangetastet stehen (kein inhaltlicher Fehler, nur
+ * der Melde-Mechanismus dafür ist weg).
  */
 export const directory: DirectoryEntry[] = [
   { id: 'max', name: 'Max Vogel', role: 'IT Support', initials: 'MV', avatarColor: 'avatar6' },
   { id: 'anna', name: 'Anna Schmidt', role: 'HR Business Partnerin', initials: 'AS', avatarColor: 'avatar4' },
   { id: 'laura', name: 'Laura Seifert', role: 'Controlling', initials: 'LS', avatarColor: 'avatar2' },
-  { id: 'tom', name: 'Tom Bauer', role: 'Marketing', initials: 'TB', avatarColor: 'avatar1', outdated: true },
+  { id: 'tom', name: 'Tom Bauer', role: 'Marketing', initials: 'TB', avatarColor: 'avatar1' },
   { id: 'lars', name: 'Lars Becker', role: 'Marketing', initials: 'LB', avatarColor: 'avatar5' },
   { id: 'lumi', name: 'Lumi', role: 'Onboarding-Assistent', isLumi: true },
 ]

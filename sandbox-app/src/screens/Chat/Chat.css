@@ -69,15 +69,45 @@
 .chat__header {
   display: flex;
   align-items: center;
-  gap: 12px;
+  justify-content: space-between;
   padding: 16px 24px;
   border-bottom: 1px solid var(--color-border);
   flex-shrink: 0;
 }
 
+.chat__header-identity {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .chat__header-name {
   font-size: 16px;
   color: var(--color-text);
+}
+
+/* Neue Anfrage (ChatTeardropText) - nur im Lumi-Chat, siehe Chat.tsx.
+   Gleiches Icon-Button-Muster wie .chat__composer-icon--accent. */
+.chat__header-new-anfrage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--color-text);
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.chat__header-new-anfrage:hover {
+  color: var(--color-accent-hover);
+}
+
+.chat__header-new-anfrage:active {
+  color: var(--color-accent-active);
 }
 
 .chat__messages {
@@ -90,14 +120,30 @@
   padding: 40px;
 }
 
-/* Entspricht Figmas "SendMessage"-Frame (node 42:3947): eine einzelne
-   umrandete Box, Eingabe links ohne eigenen Hintergrund, Icons rechts
-   (AskLumi, Smiley | Trennlinie | Send) statt separatem Eingabefeld mit
-   eigener Fläche. */
+.chat__date-divider {
+  align-self: center;
+  font-size: 12px;
+  color: var(--color-faded);
+  margin-bottom: 4px;
+}
+
+/* Hüllt MessageBox + RationaleBlock (Schritt 3, Transparenzblock) einer
+   Agenten-Nachricht zusammen - eigener Flex-Item statt MessageBox direkt,
+   damit der Block unter der Nachricht statt zwischen zwei Nachrichten mit
+   vollem .chat__messages-Gap sitzt. */
+.chat__message-group {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Entspricht Figmas "SendMessage"-Frame (node 187:2310): EINE umrandete Box,
+   Text oben (wächst mit dem Inhalt), Icons unten rechts (AskLumi, Smiley |
+   Trennlinie | Send) - vorher eine horizontale Zeile mit einzeiligem
+   <input>, jetzt eine Spalte mit <textarea> darüber (siehe Bericht an die
+   Nutzerin). */
 .chat__composer {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
   gap: 8px;
   margin: 12px 24px 24px;
   padding: 8px 16px;
@@ -107,11 +153,13 @@
   flex-shrink: 0;
 }
 
-.chat__composer input {
-  flex: 1;
-  min-width: 0;
+.chat__composer textarea {
+  width: 100%;
   border: none;
   outline: none;
+  resize: none;
+  overflow-y: auto;
+  max-height: 160px;
   font-size: 12px;
   font-weight: 300;
   font-family: 'Inter', system-ui, sans-serif;
@@ -122,6 +170,7 @@
 .chat__composer-icons {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 8px;
   flex-shrink: 0;
 }
@@ -168,4 +217,24 @@
 
 .chat__composer-icon--assistant:active {
   color: var(--color-assistant-active);
+}
+
+/* Platzhalter für den "waiting"-Hinweis unter dem Verlauf, bis Schritt 4
+   die echte Bestätigungskarte einbaut - "working" nutzt seit Kurzem den
+   echten Rive-Denk-Indikator (SparkleIndicator), diese Klasse gilt nur noch
+   für den Warten-Fall. */
+.chat__typing-indicator {
+  font-size: 12px;
+  font-style: italic;
+  color: var(--color-faded);
+  padding: 0 4px;
+}
+
+.chat__composer textarea:disabled {
+  color: var(--color-faded);
+}
+
+.chat__composer-icon:disabled {
+  opacity: 0.5;
+  cursor: default;
 }

@@ -1,0 +1,57 @@
+/* Gleiches Muster wie .chat__section-title (Chat.css): Caret-Icon + Label,
+   klickbar, kein eigener Hintergrund. Eigenständig statt geteilt, siehe
+   Moduldocstring von RationaleBlock.tsx. */
+.rationale-block {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 2px;
+}
+
+.rationale-block__header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  background: transparent;
+  padding: 2px 0;
+  font-size: 12px;
+  color: var(--color-faded);
+  cursor: pointer;
+  text-align: left;
+  width: fit-content;
+}
+
+.rationale-block__header:hover {
+  color: var(--color-text);
+}
+
+.rationale-block__list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 8px 12px;
+  list-style: none;
+  border-left: 2px solid var(--color-border);
+}
+
+.rationale-block__step {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+}
+
+.rationale-block__label {
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.rationale-block__detail {
+  color: var(--color-faded);
+}
+
+.rationale-block__source {
+  color: var(--color-accent);
+}

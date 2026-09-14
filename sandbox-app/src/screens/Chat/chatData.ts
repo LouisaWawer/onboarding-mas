@@ -26,28 +26,16 @@ export type Conversation = {
  * docs/Szenario_Interaktionsdesign.md ("Offene Punkte") bewusst noch nicht
  * final und soll erst nach der Interviewauswertung feststehen.
  */
+/*
+ * Die frühere 'lumi'-Konversation (feste, gescriptete Antworten) lebt hier
+ * nicht mehr - Lumi/der Agent wird ab der Frontend-Anbindung über
+ * state/AgentState.tsx aus dem echten Backend gespeist, nicht mehr aus
+ * diesem Mock. Diese Datei enthält jetzt nur noch die weiterhin bewusst
+ * gescripteten Kolleg:innen-Chats/Kanäle (siehe Szenario_Interaktionsdesign.md
+ * §2: "Feste, vorgeschriebene Kolleg:innen-Nachrichten statt vollständiger
+ * Multi-User-Simulation").
+ */
 export const conversations: Conversation[] = [
-  {
-    id: 'lumi',
-    name: 'Lumi',
-    isLumi: true,
-    presence: 'online',
-    messages: [
-      {
-        from: 'in',
-        text: 'Hallo und herzlich willkommen bei Nordlicht Software! Ich bin Lumi, dein Onboarding-Assistent. Ich helfe dir in den ersten Tagen bei allem Organisatorischen – frag mich einfach, wann immer du nicht weiterweißt.',
-      },
-      {
-        from: 'in',
-        text: 'Falls du dich erstmal umschauen möchtest: Im Kanal #allgemein sind schon ein paar Kolleg:innen unterwegs, das ist ein guter Ort, um dich vorzustellen.',
-      },
-      { from: 'out', text: 'Danke, das klingt gut! Womit fange ich am besten an?' },
-      {
-        from: 'in',
-        text: 'Ich würde mit deinem VPN-Zugang starten, den brauchst du für so gut wie alles. Soll ich das für dich anstoßen?',
-      },
-    ],
-  },
   {
     id: 'max',
     name: 'Max Vogel (IT)',

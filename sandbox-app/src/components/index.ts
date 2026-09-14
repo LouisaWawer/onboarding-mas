@@ -15,6 +15,9 @@ export { default as UserWithStatus } from './UserWithStatus/UserWithStatus'
 
 export { default as ChatListItem } from './ChatListItem/ChatListItem'
 export { default as MessageBox } from './MessageBox/MessageBox'
+export { default as RationaleBlock } from './RationaleBlock/RationaleBlock'
+export { default as LumiMessageIcons } from './LumiMessageIcons/LumiMessageIcons'
+export { default as SparkleIndicator } from './SparkleIndicator/SparkleIndicator'
 
 export { default as Tree } from './Tree/Tree'
 export type { TreeNode } from './Tree/Tree'

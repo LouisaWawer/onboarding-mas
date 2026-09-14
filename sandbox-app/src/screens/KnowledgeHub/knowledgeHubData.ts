@@ -63,10 +63,12 @@ export const tree: TreeNode[] = [
         id: 'vpn',
         label: 'VPN',
         kind: 'folder',
-        children: [
-          { id: 'vpn-zugang-beantragen', label: 'VPN Zugang beantragen', kind: 'file' },
-          { id: 'vpn-zugang-einrichten', label: 'VPN Zugang einrichten', kind: 'file' },
-        ],
+        // Vorher zwei Blätter ohne jeden articles-Eintrag (Klick zeigte
+        // die "noch keine Artikel"-Leerstelle, obwohl das Backend den
+        // Inhalt längst kennt) - konsolidiert auf eins, dieselbe ID wie
+        // in backend/agent/knowledge_data.py (siehe Bericht an die
+        // Nutzerin), kein künstlich zweigeteilter Prozess.
+        children: [{ id: 'vpn-zugang', label: 'VPN-Zugang', kind: 'file' }],
       },
     ],
   },
@@ -87,11 +89,19 @@ export type Article = {
 }
 
 /*
- * "Urlaub beantragen" ist der einzige Artikel mit vollständigem Inhalt aus
- * docs/Knowledge_Hub_Inhalte.md. "Sonderurlaubsregelung" und "Sonderurlaub
+ * "Urlaub beantragen" und "VPN-Zugang" sind wortgleich mit
+ * backend/agent/knowledge_data.py, beide aus docs/Knowledge_Hub_Inhalte.md
+ * (die maßgebliche Quelle, siehe Bericht an die Nutzerin) - NICHT mehr
+ * unabhängig gepflegt. Frühere Fassung von "Urlaub beantragen" enthielt
+ * noch "Öffne die Tickets-App..." (Selbstbedienungsanweisung) und einen
+ * Verweis auf Lumi als Ausführende - genau die zwei Muster, die im Backend
+ * bereits korrigiert waren, hier aber weiterlebten, weil es eine dritte,
+ * unabhängige Textquelle war. "Sonderurlaubsregelung" und "Sonderurlaub
  * beantragen" sind echte Kurztexte direkt aus Figma (PreviewBlock-Inhalte,
  * node 51:7682) übernommen – dort gibt es keinen längeren Artikelkörper,
- * die Kurzfassung dient hier auch als Detailtext.
+ * die Kurzfassung dient hier auch als Detailtext. Kein Backend-Gegenstück
+ * für diese beiden (siehe Bericht an die Nutzerin) - Knowledge_Hub_Inhalte.md
+ * kennt sie nicht, Lumi würde bei einer Frage dazu nichts finden.
  */
 export const articles: Record<string, Article> = {
   'urlaub-beantragen': {
@@ -99,29 +109,43 @@ export const articles: Record<string, Article> = {
     headline: 'Urlaub beantragen',
     path: 'HR · Abwesenheit · Urlaub',
     breadcrumb: 'HR / Abwesenheit / Urlaub',
-    preview: 'Hier erfährst du, wie du deinen Urlaub beantragst.',
+    preview: 'Hier erfährst du, wie ein Urlaubsantrag abläuft.',
     meta: 'Zuletzt aktualisiert vor 3 Tagen von Anna Schmidt (HR)',
-    body: `Hier erfährst du, wie du deinen Urlaub beantragst.
+    body: `Hier erfährst du, wie ein Urlaubsantrag abläuft.
 
-So gehst du vor
-1. Öffne die Tickets-App und erstelle ein neues Ticket an HR.
-2. Trag deinen gewünschten Zeitraum ein (Start- und Enddatum).
-3. Deine Teamleitung erhält automatisch eine Benachrichtigung und muss den Antrag genehmigen.
-4. Nach der Genehmigung trägt sich dein Urlaub automatisch in deinen Kalender ein.
-
-Du kannst dir die einzelnen Schritte auch von deinem Onboarding-Assistenten Lumi zeigen lassen – frag ihn einfach direkt im Chat.
+So läuft das ab
+1. Für einen Urlaubsantrag wird ein Ticket an HR angelegt, mit dem gewünschten Zeitraum (Start- und Enddatum).
+2. Deine Teamleitung erhält automatisch eine Benachrichtigung und muss den Antrag genehmigen.
+3. Nach der Genehmigung wird der Urlaub automatisch in deinen Kalender eingetragen.
 
 Fristen
 Bis zu 5 Tagen Urlaub: möglichst 1 Woche im Voraus beantragen. Längere Urlaube (mehr als 5 Tage): mindestens 4 Wochen im Voraus, besonders in der Ferienzeit.
 
 Genehmigung
-Dein Antrag wird von deiner direkten Teamleitung geprüft. Bei Rückfragen (z.B. bei Terminüberschneidungen im Team) meldet sie sich direkt bei dir. Die Bearbeitung dauert in der Regel 1–2 Werktage.
+Dein Antrag wird von deiner direkten Teamleitung geprüft. Bei Rückfragen (z.B. bei Terminüberschneidungen im Team) meldet sie sich direkt im Chat. Die Bearbeitung dauert in der Regel 1–2 Werktage.
 
 Resturlaub
 Nicht genommener Urlaub kann bis zum 31. März des Folgejahres übertragen werden. Danach verfällt er automatisch – wir empfehlen, das im Blick zu behalten und rechtzeitig zu planen.
 
 Sonderfälle
-Für Urlaub aus besonderem Anlass (z.B. Hochzeit, Umzug) gilt eine eigene Regelung – mehr dazu im Artikel Sonderurlaub.`,
+Für Urlaub aus besonderem Anlass (z.B. Hochzeit, Umzug) gilt eine eigene Regelung.`,
+  },
+  'vpn-zugang': {
+    id: 'vpn-zugang',
+    headline: 'VPN-Zugang',
+    path: 'IT · Zugänge · VPN',
+    breadcrumb: 'IT / Zugänge / VPN',
+    preview: 'Hier erfährst du, wie der VPN-Zugang für neue Mitarbeiter:innen eingerichtet wird.',
+    meta: 'Zuletzt aktualisiert vor 1 Tag von Max Vogel (IT)',
+    body: `Hier erfährst du, wie der VPN-Zugang für neue Mitarbeiter:innen eingerichtet wird.
+
+So läuft das ab
+1. Für den VPN-Zugang wird ein Ticket bei der IT angelegt (Kategorie: IT-Zugänge).
+2. Die IT bearbeitet eingehende Zugangs-Tickets in der Regel zeitnah am selben Tag.
+3. Sobald der Zugang eingerichtet ist, gibt es dazu eine Rückmeldung im Ticket.
+
+Wichtig
+Ohne VPN-Zugang sind bestimmte interne Tools eingeschränkt erreichbar – etwa während geplanter Wartungsfenster. Bei Rückfragen zu einem laufenden Ticket meldet sich die IT direkt im Chat.`,
   },
   sonderurlaubsregelung: {
     id: 'sonderurlaubsregelung',

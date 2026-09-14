@@ -1,0 +1,35 @@
+.sparkle-indicator {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+}
+
+.sparkle-indicator canvas {
+  width: 100%;
+  height: 100%;
+}
+
+/* Overlay, nicht Ersatz - liegt über dem (immer gemounteten) Canvas, bis
+   geladen/gebunden ist, siehe SparkleIndicator.tsx für den Bugfix, den das
+   nötig gemacht hat. */
+.sparkle-indicator__fallback {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--color-bg);
+  border-radius: 50%;
+}
+
+/* Kann die intern in der .riv-Datei hinterlegte Bewegung nicht abschalten
+   (das steckt in der Animation selbst, nicht in dieser Wrapper-Komponente)
+   - reduziert nur, was von außen beeinflussbar ist. Siehe Bericht an die
+   Nutzerin. */
+.sparkle-indicator--reduced-motion {
+  animation: none;
+}

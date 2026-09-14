@@ -22,6 +22,13 @@ const OVERLAP_PX = -6
  * Entspricht Figmas eigenem "UserWithStatus"-Baustein (dort ebenfalls in
  * ChatListItem und ChatboxHeader wiederverwendet): Avatar + Präsenz-Punkt
  * als Flex-Row, unten ausgerichtet, kein absolute Positioning.
+ *
+ * isLumi unterdrückt presence STRUKTURELL hier, am einzigen Ort, der von
+ * ChatListItem UND der Chat-Kopfzeile UND jeder künftigen Lumi-Darstellung
+ * durchlaufen wird (siehe Bericht an die Nutzerin) - "online/abwesend/
+ * beschäftigt" ergibt bei einem Assistenten keinen Sinn, das gilt bei
+ * Kolleg:innen weiterhin. Ein Aufrufer kann isLumi+presence also bedenkenlos
+ * gemeinsam übergeben, ohne dass presence versehentlich durchschlägt.
  */
 export default function UserWithStatus({
   avatarSize,
@@ -31,12 +38,13 @@ export default function UserWithStatus({
   presence,
   className,
 }: UserWithStatusProps) {
+  const effectivePresence = isLumi ? undefined : presence
   return (
     <span className={`user-with-status ${className ?? ''}`}>
-      <span style={presence ? { marginRight: OVERLAP_PX } : undefined}>
+      <span style={effectivePresence ? { marginRight: OVERLAP_PX } : undefined}>
         <Avatar icon={isLumi ? 'lumi' : 'initials'} initials={initials} color={avatarColor} size={avatarSize} />
       </span>
-      {presence && <StatusIndicator status={presence} size={STATUS_SIZE} />}
+      {effectivePresence && <StatusIndicator status={effectivePresence} size={STATUS_SIZE} />}
     </span>
   )
 }

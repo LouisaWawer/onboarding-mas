@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import Avatar from '../../components/Avatar/Avatar'
 import { useReportBadge } from '../../state/AppNotifications'
-import { useSendToLumi } from '../../state/ChatState'
 import { TABS, announcements, directory, company, type TabId } from './intranetData'
 import './Intranet.css'
 
@@ -11,20 +10,19 @@ import './Intranet.css'
  * Tabs sind dort nicht gebaut – Inhalte hier aus docs/
  * Fiktive_Firma_und_Kollegen.md (Verzeichnis, Über uns) bzw. als ehrlicher
  * Minimalzustand ("Neu im Team", da docs keine weiteren Neuzugänge nennen).
+ *
+ * "Angaben nicht aktuell? Melden" (useSendToLumi-Trigger bei Tom Bauers
+ * veraltetem Eintrag) wieder entfernt - nicht im Studienskript vorgesehen
+ * (siehe Bericht an die Nutzerin). Der zugrunde liegende Absturz wurde
+ * bewusst nicht weiterverfolgt, war aber vermutlich nicht am Trigger selbst
+ * festzumachen (reportOutdated/requestNewMeeting in Kalender.tsx riefen
+ * denselben Mechanismus identisch auf).
  */
 export default function Intranet() {
   const [activeTab, setActiveTab] = useState<TabId>('ankuendigungen')
-  const sendToLumi = useSendToLumi()
 
   // Badge verschwindet, sobald der Ankündigungen-Tab einmal geöffnet wurde.
   useReportBadge('intranet', activeTab !== 'ankuendigungen' && announcements.some((a) => a.isNew))
-
-  function reportOutdated(name: string) {
-    sendToLumi(
-      `Der Eintrag von ${name} im Mitarbeitendenverzeichnis scheint nicht mehr aktuell zu sein.`,
-      `Danke für den Hinweis! Ich melde das ans HR-Team weiter, damit der Eintrag von ${name} aktualisiert wird.`,
-    )
-  }
 
   return (
     <div className="intranet">
@@ -75,11 +73,6 @@ export default function Intranet() {
                     <span className="intranet__person-name">{person.name}</span>
                     <span className="intranet__person-role">{person.role}</span>
                   </div>
-                  {person.outdated && (
-                    <button type="button" className="intranet__report" onClick={() => reportOutdated(person.name)}>
-                      Angaben nicht aktuell? Melden
-                    </button>
-                  )}
                 </li>
               ))}
             </ul>
