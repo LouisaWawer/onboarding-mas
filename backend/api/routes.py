@@ -45,6 +45,8 @@ from .models import (
     SeenRequest,
     SessionSnapshotResponse,
     ThreadSnapshotResponse,
+    TicketOut,
+    TicketsResponse,
 )
 from .preseed import PRESEED_TEMPLATES
 from .store import Store
@@ -88,6 +90,31 @@ def _session_snapshot(store: Store, graph, session_id: str) -> SessionSnapshotRe
         active_thread_id=store.active_thread_id(session_id),
         pending_suggestion=PendingSuggestion(**pending) if pending else None,
     )
+
+
+def _merge_sandbox_items(store: Store, graph, session_id: str, key: str) -> list[dict]:
+    """Sammelt sandbox_state[key] über ALLE Anfragen der Session, in
+    Anfragen-Erstellungsreihenfolge (store.list_anfragen() ist bereits ASC
+    nach created_at sortiert). sandbox_state lebt PRO THREAD, nicht pro
+    Session (siehe Bericht an die Nutzerin: jede neue Anfrage startet mit
+    einem leeren sandbox_state, build_fresh_turn_input() in
+    graph_runner.py) - ein einzelner Thread-Read würde Tickets/Termine
+    aus älteren Anfragen verlieren, deshalb hier über alle iteriert.
+
+    Generisch über den Feldnamen (key) gehalten, NICHT auf "tickets"
+    festgelegt: ein künftiges Kalender-Äquivalent (key="calendar_events")
+    kann dieselbe Funktion nutzen, ohne sie zu duplizieren - siehe Auftrag
+    ("Kalender folgt später, Endpunkt so halten, dass er ohne Umbau
+    erweiterbar ist"). Kostet einen graph.get_state()-Aufruf pro Anfrage -
+    gleiche, bereits akzeptierte Größenordnung wie _session_snapshot()
+    oben."""
+    items: list[dict] = []
+    for row in store.list_anfragen(session_id):
+        config = {"configurable": {"thread_id": row["thread_id"]}}
+        snapshot = graph.get_state(config)
+        sandbox_state = (snapshot.values or {}).get("sandbox_state") or {}
+        items.extend(sandbox_state.get(key, []))
+    return items
 
 
 def _require_owned_anfrage(store: Store, thread_id: str, session_id: str) -> dict:
@@ -183,6 +210,48 @@ async def get_session(session_id: str, request: Request) -> SessionSnapshotRespo
         raise HTTPException(status_code=404, detail="Session nicht gefunden.")
     graph = request.app.state.graph
     return _session_snapshot(store, graph, session_id)
+
+
+# Bugfix (siehe Bericht an die Nutzerin): create_ticket schrieb bisher nur
+# in sandbox_state - der Tickets-Screen (sandbox-app) ist ein rein lokaler
+# Mock ohne jeden Kanal dorthin. Ein von Lumi angelegtes Ticket war damit
+# im Tickets-Screen nie sichtbar, obwohl die Bestätigungsnachricht
+# "Erledigt" sagte - für die Studie (RQ1) potenziell irreführend. Kein
+# Live-Sync nötig (siehe Auftrag) - der Screen lädt einmal beim Betreten.
+#
+# Bekannte Grenze, nicht behoben (außerhalb des Auftrags): ticket["id"]
+# (tools.py: create_ticket) zählt PRO THREAD hoch ("N0001", "N0002", ...
+# ab jeweils leerem sandbox_state), nicht session-weit - zwei Tickets aus
+# ZWEI VERSCHIEDENEN Anfragen derselben Session könnten also dieselbe
+# ticketid zeigen. Für das aktuelle Testskript (ein Ticket pro Session)
+# ohne Wirkung; bei mehreren Ticket-Schritten in einer Session wäre ein
+# session-weiter Zähler nötig (Änderung in tools.py/create_ticket, nicht
+# hier).
+@router.get("/session/{session_id}/tickets", response_model=TicketsResponse)
+async def get_session_tickets(session_id: str, request: Request) -> TicketsResponse:
+    store: Store = request.app.state.store
+    if not store.session_exists(session_id):
+        raise HTTPException(status_code=404, detail="Session nicht gefunden.")
+    graph = request.app.state.graph
+    raw_tickets = _merge_sandbox_items(store, graph, session_id, "tickets")
+
+    # "offen" -> "open": create_ticket() (tools.py) setzt AUSSCHLIESSLICH
+    # diesen einen Status, keine andere Zuordnung existiert im Code - siehe
+    # Bericht an die Nutzerin. Trotzdem als explizite Map statt fest
+    # verdrahtetem String, mit sicherem Fallback auf "open", falls sich das
+    # je ändert.
+    status_map = {"offen": "open"}
+    tickets = [
+        TicketOut(
+            ticketid=t["id"],
+            date=t["date"],
+            topic=t["subject"],
+            department=t["department"],
+            status=status_map.get(t.get("status", "offen"), "open"),
+        )
+        for t in raw_tickets
+    ]
+    return TicketsResponse(tickets=tickets)
 
 
 # ---------------------------------------------------------------------------
@@ -331,11 +400,23 @@ async def post_message(thread_id: str, body: PostMessageRequest, request: Reques
     current_values = snapshot.values or {}
     is_first_message = not current_values.get("messages")
 
+    # Duplikat-Erkennung über Anfragen-Grenzen hinweg (siehe Bericht an die
+    # Nutzerin, Punkt 5): sandbox_state ist PRO THREAD - ohne das hier sieht
+    # infrastructure_agent_node (graph.py) nie, dass in einer ANDEREN
+    # Anfrage derselben Sitzung schon ein offenes Ticket zum selben Thema
+    # existiert. Wiederverwendet _merge_sandbox_items() (siehe Tickets-Sync
+    # oben) statt eines neuen Mechanismus. NUR offene Tickets (status
+    # "offen") - ein bereits erledigtes Ticket zum selben Thema soll keine
+    # Warnung auslösen.
+    session_tickets = _merge_sandbox_items(store, graph, body.session_id, "tickets")
+    session_open_tickets = [t for t in session_tickets if t.get("status") == "offen"]
+
     graph_input = build_fresh_turn_input(
         thread_id=thread_id,
         current_values=current_values,
         user_text=body.text,
         channel=body.channel,
+        session_open_tickets=session_open_tickets,
     )
 
     if is_first_message:
@@ -451,6 +532,7 @@ async def post_screen(session_id: str, body: ScreenRequest, request: Request) ->
         screen=screen,
     )
 
+    suggestion = SUGGESTION_POLICY[screen]
     request.app.state.event_bus.publish_threadsafe(
         session_id,
         {
@@ -458,7 +540,8 @@ async def post_screen(session_id: str, body: ScreenRequest, request: Request) ->
             "thread_id": None,
             "status": "suggestion",
             "screen": screen,
-            "text": SUGGESTION_POLICY[screen]["displayed"],
+            "title": suggestion["title"],
+            "options": suggestion["options"],
         },
     )
     return AcceptedResponse()
@@ -466,11 +549,19 @@ async def post_screen(session_id: str, body: ScreenRequest, request: Request) ->
 
 @router.post("/session/{session_id}/seen", response_model=AcceptedResponse)
 async def post_session_seen(session_id: str, request: Request) -> AcceptedResponse:
-    """Session-Geschwister zu POST /thread/{id}/seen: löscht einen
-    ausstehenden Vorschlag. Das Frontend ruft dies auf, wenn entweder das
-    Panel geöffnet ODER der Screen verlassen wird (siehe Bericht an die
-    Nutzerin, "Zurück auf idle, sobald...") - dieser Endpunkt kennt nur
-    "zur Kenntnis genommen/hinfällig geworden", nicht WARUM.
+    """Session-Geschwister zu POST /thread/{id}/seen: LÖSCHT einen
+    ausstehenden Vorschlag vollständig. Das Frontend ruft dies auf, wenn der
+    Vorschlag tatsächlich erledigt ist - Klick auf eine Option, die X-
+    Schließen-Option der Karte, oder der Screen (auf den sich der Vorschlag
+    bezieht) wird verlassen (siehe Bericht an die Nutzerin) - dieser
+    Endpunkt kennt nur "hinfällig geworden", nicht WARUM.
+
+    Bugfix (Schritt 6, Testpunkt-8-Nachbesserung): NICHT mehr für das bloße
+    Öffnen des Panels zuständig - das ruft jetzt POST
+    /session/{id}/acknowledge_suggestion auf (siehe unten), das den
+    Vorschlag NICHT löscht, nur den peripheren Punkt beruhigt. Vorher lief
+    hier auch das Panel-Öffnen mit, wodurch die Karte einen Reload nicht
+    überlebte, sobald das Panel einmal offen war - siehe dort.
 
     Published 'idle' NUR, wenn die Session danach tatsächlich ruhig ist -
     sonst würde ein fälschliches 'idle' eine echte laufende/wartende
@@ -482,6 +573,36 @@ async def post_session_seen(session_id: str, request: Request) -> AcceptedRespon
         raise HTTPException(status_code=404, detail="Session nicht gefunden.")
 
     store.set_pending_suggestion(session_id, None)
+
+    graph = request.app.state.graph
+    if not session_has_live_anfrage(store, graph, session_id):
+        request.app.state.event_bus.publish_threadsafe(
+            session_id,
+            {"type": "status_changed", "thread_id": None, "status": "idle"},
+        )
+    return AcceptedResponse()
+
+
+@router.post("/session/{session_id}/acknowledge_suggestion", response_model=AcceptedResponse)
+async def post_acknowledge_suggestion(session_id: str, request: Request) -> AcceptedResponse:
+    """'Punkt beruhigen', OHNE den Vorschlag zu verwerfen (siehe Bericht an
+    die Nutzerin, Schritt 6, Testpunkt-8-Nachbesserung) - Gegenstück zu
+    POST /session/{id}/seen (vollständiges Löschen). Vom Frontend beim
+    Öffnen des Panels aufgerufen (acknowledgeSuggestion(), AgentState.tsx):
+    die Person hat hingesehen, der periphere Punkt darf sich beruhigen -
+    die Karte im Panel bleibt aber bestehen, bis der Vorschlag tatsächlich
+    erledigt wird (siehe post_session_seen oben). Exakt dieselbe Trennung,
+    die im Frontend schon existierte (pendingSuggestion vs.
+    displayedSuggestion) - fehlte bisher nur hier, weshalb die Karte einen
+    Reload nach dem Öffnen des Panels nicht überlebte.
+
+    Published 'idle' nach demselben Prinzip wie post_session_seen - NUR,
+    wenn die Session danach tatsächlich ruhig ist."""
+    store: Store = request.app.state.store
+    if not store.session_exists(session_id):
+        raise HTTPException(status_code=404, detail="Session nicht gefunden.")
+
+    store.acknowledge_pending_suggestion(session_id)
 
     graph = request.app.state.graph
     if not session_has_live_anfrage(store, graph, session_id):

@@ -40,7 +40,8 @@ class Store:
                 CREATE TABLE IF NOT EXISTS sessions (
                     session_id TEXT PRIMARY KEY,
                     created_at TEXT NOT NULL,
-                    pending_suggestion_screen TEXT
+                    pending_suggestion_screen TEXT,
+                    pending_suggestion_acknowledged INTEGER NOT NULL DEFAULT 0
                 );
 
                 CREATE TABLE IF NOT EXISTS suggested_screens (
@@ -88,6 +89,11 @@ class Store:
             }
             if "pending_suggestion_screen" not in existing_session_columns:
                 self._conn.execute("ALTER TABLE sessions ADD COLUMN pending_suggestion_screen TEXT")
+                self._conn.commit()
+            if "pending_suggestion_acknowledged" not in existing_session_columns:
+                self._conn.execute(
+                    "ALTER TABLE sessions ADD COLUMN pending_suggestion_acknowledged INTEGER NOT NULL DEFAULT 0"
+                )
                 self._conn.commit()
 
     def close(self) -> None:
@@ -245,9 +251,17 @@ class Store:
             self._conn.commit()
 
     def set_pending_suggestion(self, session_id: str, screen: Optional[str]) -> None:
+        # pending_suggestion_acknowledged IMMER mit zurückgesetzt (siehe
+        # acknowledge_pending_suggestion()-Docstring unten): gilt sowohl
+        # beim Setzen eines NEUEN Vorschlags (der ist per Definition noch
+        # nicht bestätigt) als auch beim vollständigen Löschen (screen=None
+        # - dann gibt es nichts mehr, das bestätigt wäre) - keine der
+        # beiden Situationen soll ein veraltetes "bestätigt" aus einem
+        # FRÜHEREN Vorschlag erben.
         with self._lock:
             self._conn.execute(
-                "UPDATE sessions SET pending_suggestion_screen = ? WHERE session_id = ?",
+                "UPDATE sessions SET pending_suggestion_screen = ?, pending_suggestion_acknowledged = 0 "
+                "WHERE session_id = ?",
                 (screen, session_id),
             )
             self._conn.commit()
@@ -260,6 +274,33 @@ class Store:
             )
             row = cur.fetchone()
         return row[0] if row else None
+
+    # "Punkt beruhigen" OHNE den Vorschlag zu verwerfen (siehe Bericht an
+    # die Nutzerin, Schritt 6, Testpunkt-8-Nachbesserung) - Gegenstück zu
+    # set_pending_suggestion(session_id, None) (vollständiges Löschen).
+    # Genau die Trennung, die im Frontend schon existierte
+    # (pendingSuggestion vs. displayedSuggestion, AgentState.tsx), fehlte
+    # bisher hier: POST /session/{id}/seen löschte pending_suggestion_screen
+    # komplett, auch wenn es nur ums Beruhigen des Punkts ging (Panel-
+    # Öffnen) - die Karte überlebte danach nur noch, solange
+    # displayedSuggestion lokal im Browser stand, nicht mehr nach einem
+    # Reload (GET /session fand dann nichts mehr).
+    def acknowledge_pending_suggestion(self, session_id: str) -> None:
+        with self._lock:
+            self._conn.execute(
+                "UPDATE sessions SET pending_suggestion_acknowledged = 1 WHERE session_id = ?",
+                (session_id,),
+            )
+            self._conn.commit()
+
+    def is_pending_suggestion_acknowledged(self, session_id: str) -> bool:
+        with self._lock:
+            cur = self._conn.execute(
+                "SELECT pending_suggestion_acknowledged FROM sessions WHERE session_id = ?",
+                (session_id,),
+            )
+            row = cur.fetchone()
+        return bool(row[0]) if row else False
 
     def set_title_if_empty(self, thread_id: str, title: str) -> bool:
         """Setzt den Titel nur, wenn noch keiner gesetzt ist (siehe Auftrag

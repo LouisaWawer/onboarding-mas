@@ -21,23 +21,59 @@ intranet | chat | hub | tickets | calendar - 'calendar', NICHT
 'kalender' (deutscher Screen-Name, aber englische interne ID, siehe
 CODE_UEBERSICHT.md). 'chat' bewusst NICHT enthalten - dort Hilfe
 anzubieten ergibt keinen Sinn, man ist ohnehin bei Lumi.
+
+Struktur (siehe Bericht an die Nutzerin, Schritt 6, Design-Korrektur):
+Karte statt Einzelzeile - eine Instanz derselben Figma-Variante wie die
+ConfirmationCard ("type=options", node 219:4794), NICHT die
+Aufgabenauswahl-Verwendung dieser Variante (die bleibt Backlog, siehe
+OptionsCard.tsx). `title` ersetzt das frühere einzelne `displayed`,
+`options` ersetzt das frühere einzelne `submitted` - JEDE Option trägt
+BEIDES einzeln: `displayed` das kurze Options-Label (Button-Text, z.B.
+"Neue Besprechung planen"), `submitted` der tatsächliche, natürlich
+formulierte Nutzernachrichten-Text nach einem Klick (z.B. "Ich möchte
+eine neue Besprechung planen."). Bugfix ggü. der vorherigen Fassung:
+`submitted` wurde dort nie tatsächlich übertragen (weder im
+status_changed-Event noch in resolve_pending_suggestion() unten) - nur
+`displayed` verließ je das Backend, `submitted` war totes Feld. Jetzt
+zwingend nötig, weil ein kurzes Options-Label (anders als der frühere
+volle Angebots-Satz) nicht mehr selbst als Nutzernachricht taugt.
+
+tickets/hub/intranet bewusst NICHT enthalten - Texte liefert die
+Nutzerin nach, sobald die Struktur steht. Kein Platzhalter aus den
+alten Einzelzeilen-Texten (falsche Form: Aussagesatz statt Frage-Titel
++ Optionsliste) - der bestehende "kein Eintrag in SUGGESTION_POLICY"-
+No-Op in routes.py (post_screen) deckt das bereits ab, kein Code nötig.
 """
 
-SUGGESTION_POLICY: dict[str, dict[str, str]] = {
+from typing import TypedDict
+
+
+class SuggestionOption(TypedDict):
+    displayed: str
+    submitted: str
+
+
+class SuggestionCard(TypedDict):
+    title: str
+    options: list[SuggestionOption]
+
+
+SUGGESTION_POLICY: dict[str, SuggestionCard] = {
     "calendar": {
-        "displayed": "Wenn du einen Termin eintragen willst, mache ich das gern für dich.",
-        "submitted": "Ich möchte einen Termin eintragen.",
-    },
-    "tickets": {
-        "displayed": "Wenn du etwas von einem Team brauchst, kann ich daraus ein Ticket machen.",
-        "submitted": "Ich brauche etwas von einem Team und möchte eine Anfrage stellen.",
-    },
-    "hub": {
-        "displayed": "Wenn du nicht findest wonach du suchst, frag mich direkt.",
-        "submitted": "Ich suche etwas in der Wissensdatenbank und finde es nicht.",
-    },
-    "intranet": {
-        "displayed": "Falls du wissen willst, wer hier wofür zuständig ist: frag mich.",
-        "submitted": "Wer ist bei Nordlicht wofür zuständig?",
+        "title": "Ich sehe du bist im Kalender. Wie kann ich dich unterstützen?",
+        "options": [
+            {
+                "displayed": "Neue Besprechung planen",
+                "submitted": "Ich möchte eine neue Besprechung planen.",
+            },
+            {
+                "displayed": "Besprechung absagen",
+                "submitted": "Ich möchte eine Besprechung absagen.",
+            },
+            {
+                "displayed": "Besprechung verschieben",
+                "submitted": "Ich möchte eine Besprechung verschieben.",
+            },
+        ],
     },
 }

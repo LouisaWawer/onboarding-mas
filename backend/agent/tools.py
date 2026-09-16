@@ -12,13 +12,26 @@ from .knowledge_data import search_knowledge_and_intranet
 from .colleague_data import find_colleague_for_topic
 
 
-def create_ticket(sandbox_state: dict, department: str, subject: str) -> dict:
-    """Legt ein neues Ticket in der Sandbox an (kein echtes Ticketsystem)."""
+def create_ticket(
+    sandbox_state: dict, department: str, subject: str, priority: str = "normal", description: str = ""
+) -> dict:
+    """Legt ein neues Ticket in der Sandbox an (kein echtes Ticketsystem).
+
+    priority: "normal" als Default - siehe PROPOSE_TICKET_TOOL (graph.py),
+    das Modell soll nicht jedes Mal danach fragen, nur wenn aus der Anfrage
+    tatsächlich etwas anderes hervorgeht.
+
+    description: der Text, der INS TICKET geht (an die IT als Empfängerin
+    gerichtet, dritte Person) - NICHT zu verwechseln mit pending_action["reason"]
+    (die Begründung AN DIE NUTZER:IN, zweite Person, lebt nur im Graph-State,
+    landet nie hier). Siehe PROPOSE_TICKET_TOOL für die Unterscheidung."""
     ticket = {
         "id": f"N{len(sandbox_state.get('tickets', [])) + 1:04d}",
         "date": datetime.now().strftime("%d.%m."),
         "subject": subject,
         "department": department,
+        "priority": priority,
+        "description": description,
         "status": "offen",
         "is_new": True,
     }

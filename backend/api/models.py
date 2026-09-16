@@ -33,14 +33,32 @@ class AnfrageSummary(BaseModel):
     status: StatusValue
 
 
+class SuggestionOption(BaseModel):
+    """Eine Options-Zeile der Vorschlagskarte (siehe suggestion_policy.py).
+    `displayed` ist das kurze Options-Label (Button-Text), `submitted` der
+    tatsächliche Nutzernachrichten-Text nach einem Klick - beide verlassen
+    das Backend jetzt einzeln (Korrektur ggü. der früheren Einzelzeilen-
+    Fassung, siehe suggestion_policy.py-Docstring: `submitted` wurde dort
+    nie übertragen)."""
+
+    displayed: str
+    submitted: str
+
+
 class PendingSuggestion(BaseModel):
-    """Session-gebundener Vorschlag (siehe Bericht an die Nutzerin) - `text`
-    ist die ANGEZEIGTE Zeile, nicht der abgeschickte Prompttext (der lebt
-    nur backend-seitig in suggestion_policy.py, verlässt das Backend erst
-    als normale Nutzernachricht nach einem Klick)."""
+    """Session-gebundener Vorschlag (siehe Bericht an die Nutzerin, Schritt
+    6) - eine Karte (Titel + mehrere Optionen), keine Einzelzeile mehr.
+
+    `acknowledged` (Testpunkt-8-Nachbesserung): True, wenn das Panel bereits
+    geöffnet wurde (Punkt beruhigt), OHNE dass der Vorschlag selbst schon
+    verworfen wurde (Klick/X/Screenwechsel) - siehe
+    resolve_pending_suggestion()/acknowledge_pending_suggestion()
+    (store.py)."""
 
     screen: str
-    text: str
+    title: str
+    options: list[SuggestionOption]
+    acknowledged: bool = False
 
 
 class SessionSnapshotResponse(BaseModel):
@@ -123,3 +141,23 @@ class ScreenRequest(BaseModel):
 
 class AcceptedResponse(BaseModel):
     accepted: bool = True
+
+
+class TicketOut(BaseModel):
+    """Ein von Lumi tatsächlich angelegtes Ticket (sandbox_state["tickets"],
+    siehe tools.py: create_ticket()) - Feldnamen an die Frontend-Anzeige
+    (Tickets.tsx) angeglichen, nicht 1:1 am Backend-Dict. estimate fehlt
+    bewusst: dafür gibt es serverseitig keinen echten Wert (siehe Bericht
+    an die Nutzerin) - das Frontend zeigt an dieser Stelle einen expliziten
+    Platzhalter statt einer erfundenen Zahl."""
+
+    ticketid: str
+    date: str
+    topic: str
+    department: str
+    status: Literal["open", "processing", "done", "error"]
+    is_new: bool = True
+
+
+class TicketsResponse(BaseModel):
+    tickets: list[TicketOut]

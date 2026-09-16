@@ -22,6 +22,7 @@ Ablauf:
 """
 
 import datetime
+import re
 
 from langgraph.graph import StateGraph, END
 from langgraph.types import interrupt, Command
@@ -38,6 +39,7 @@ from .colleague_data import find_colleague_for_topic
 from .criticality_policy import is_tool_critical
 from .prompts_config import build_system_prompt, ESCALATION_PROMPT
 from .logging_store import log_interaction
+from .text_matching import tokenize, any_word_matches
 
 client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
@@ -212,12 +214,64 @@ PROPOSE_TICKET_TOOL = {
                 "description": "Ob überhaupt ein Ticket für diese Anfrage nötig ist",
             },
             "subject": {"type": "string", "description": "Kurzer Betreff für das Ticket"},
+            # Ergänzt (siehe Bericht an die Nutzerin): fehlte im Schema
+            # komplett - das Modell erfand dafür einen freien JSON-Block
+            # ("context"/"description") im Fließtext, den _strip_structured_
+            # tail() jetzt korrekt abschneidet, wodurch die Information
+            # aber ganz verschwand, statt an ihren eigentlichen Platz (die
+            # Karte) zu wandern. WICHTIGE UNTERSCHEIDUNG zu "reason" unten:
+            # description ist AN DEN TICKETEMPFÄNGER (IT) gerichtet, dritte
+            # Person ist dort richtig - reason bleibt die Begründung AN DIE
+            # NUTZER:IN, zweite Person. Design: grauer Block (inkl. dieses
+            # Felds) = was ins Ticket geht, Reasoning-Text darunter = warum,
+            # an die Person gerichtet.
+            "description": {
+                "type": "string",
+                "description": (
+                    "Der Text, der INS TICKET geht - für die IT als Empfängerin "
+                    "geschrieben, dritte Person (z.B. 'Neue Mitarbeiterin benötigt "
+                    "einen VPN-Zugang für ihr Mac-Gerät, um auf interne Tools "
+                    "zugreifen zu können.'). NICHT mit 'reason' verwechseln: reason "
+                    "ist die Begründung AN DIE NUTZER:IN (zweite Person, 'Du'), "
+                    "description ist die Problem-/Anliegenbeschreibung FÜR die IT "
+                    "(dritte Person)."
+                ),
+            },
+            # Erzwungenes Pflichtfeld statt optional (siehe Bericht an die
+            # Nutzerin: dieselbe Begründung wie bei within_current_week -
+            # eine diskrete, erzwungene Entscheidung ist zuverlässiger als
+            # freie Textgenerierung, die das Feld auch mal wegließe). Die
+            # Karte zeigt priority automatisch mit an (generisches Rendern
+            # von proposal.args, siehe ConfirmationCard.tsx), OHNE dass der
+            # Fließtext es zusätzlich nennen muss.
+            "priority": {
+                "type": "string",
+                "enum": ["niedrig", "normal", "hoch"],
+                "description": (
+                    "Priorität des Tickets. 'normal' als Default, wenn aus der "
+                    "Anfrage nichts anderes hervorgeht - frag NICHT extra danach, "
+                    "nur 'niedrig'/'hoch' wählen, wenn die Nutzer:in das "
+                    "erkennbar meint (z.B. 'dringend' -> hoch)."
+                ),
+            },
+            # Bugfix (siehe Bericht an die Nutzerin): das Modell formulierte
+            # das bisher wie eine Notiz AN den Ticketempfänger, über die
+            # Nutzer:in in dritter Person ("Die Nutzer:in hat...") - im
+            # Design (ConfirmationCard) ist die Begründung aber direkt AN
+            # die Nutzer:in gerichtet ("Du benötigst..."), da die Karte IHR
+            # angezeigt wird, nicht der IT. Jetzt explizit vorgegeben.
             "reason": {
                 "type": "string",
-                "description": "Kurze, der Nutzer:in gezeigte Begründung, warum das Ticket nötig ist",
+                "description": (
+                    "Kurze Begründung, DIREKT an die Nutzer:in gerichtet (Anrede "
+                    "'Du', z.B. 'Du benötigst einen neuen VPN-Zugang, der vom "
+                    "IT-Team eingerichtet werden muss.') - NICHT in dritter "
+                    "Person über sie ('Die Nutzer:in hat...'), das liest sich wie "
+                    "eine interne Notiz an die IT statt wie eine Erklärung an sie."
+                ),
             },
         },
-        "required": ["needed"],
+        "required": ["needed", "priority", "description"],
     },
 }
 
@@ -329,9 +383,16 @@ PROPOSE_CALENDAR_EVENT_TOOL = {
                 "type": "string",
                 "description": "Organisator:in des Termins - 'Lumi', falls nicht anders genannt",
             },
+            # Bugfix (siehe Bericht an die Nutzerin, gleicher Fund wie bei
+            # PROPOSE_TICKET_TOOL): direkt an die Nutzer:in gerichtet, nicht
+            # dritte Person.
             "reason": {
                 "type": "string",
-                "description": "Kurze, der Nutzer:in gezeigte Begründung, warum der Termin nötig ist",
+                "description": (
+                    "Kurze Begründung, DIREKT an die Nutzer:in gerichtet (Anrede "
+                    "'Du') - NICHT in dritter Person über sie ('Die Nutzer:in "
+                    "hat...')."
+                ),
             },
         },
         "required": ["needed"],
@@ -347,6 +408,40 @@ def _extract_tool_input(response, tool_name: str) -> dict:
         if block.type == "tool_use" and block.name == tool_name:
             return block.input
     raise ValueError(f"Kein Tool-Use-Block für '{tool_name}' in der Antwort gefunden")
+
+
+_CODE_FENCE_RE = re.compile(r"```")
+_BRACE_LINE_RE = re.compile(r"^\s*\{", re.MULTILINE)
+
+
+def _strip_structured_tail(text: str) -> str:
+    """Deterministischer Nachbearbeitungsschritt, KEIN dritter Prompt-Versuch
+    (siehe Bericht an die Nutzerin): "genau ein Satz, kein JSON" im
+    System-Prompt griff zweimal nicht zuverlässig - dasselbe Muster wie bei
+    der Quellenangabe (info_agent_node) und den Sandbox-Grenzen
+    (LUMI_CAPABILITIES): eine Modellanweisung ist keine Garantie. Schneidet
+    stattdessen hart ab: alles ab dem ersten Markdown-Code-Zaun (```) ODER
+    der ersten Zeile, die (nach führendem Whitespace) mit '{' beginnt, wird
+    verworfen - je nachdem, was zuerst im Text vorkommt. Der Ankündigungssatz
+    steht laut Beobachtung immer davor.
+
+    Nur für die Knoten mit pending_action (infrastructure_agent_node/
+    scheduling_agent_node) gedacht - info_agent_node ruft das NICHT auf,
+    dort ist Markdown/Listen gewollt (siehe Bericht an die Nutzerin).
+
+    Fallback auf den UNVERÄNDERTEN Text, falls nach dem Schnitt nichts
+    Sichtbares übrig bliebe (z.B. eine Antwort, die NUR aus JSON bestünde,
+    ohne Ankündigungssatz davor) - eine leere Nachricht wäre schlimmer als
+    die alte, unbereinigte Anzeige."""
+    cutoff = len(text)
+    fence_match = _CODE_FENCE_RE.search(text)
+    if fence_match:
+        cutoff = min(cutoff, fence_match.start())
+    brace_match = _BRACE_LINE_RE.search(text)
+    if brace_match:
+        cutoff = min(cutoff, brace_match.start())
+    cleaned = text[:cutoff].rstrip()
+    return cleaned if cleaned else text
 
 
 def _messages_ending_with_user(messages: list, fallback_instruction: str) -> list:
@@ -428,6 +523,27 @@ def supervisor_node(state: OnboardingState) -> OnboardingState:
         state["last_search_results"] = None
         state["last_colleague"] = None
         state["last_executed_action"] = None
+        # Gleiches Prinzip, jetzt für die Ablehnen/Anpassen-Erkennung in
+        # execute_action_node (siehe Bericht an die Nutzerin): last_decision/
+        # last_declined_action werden NUR von human_review_node/
+        # updated_query_node gesetzt - läuft dieser Teilschritt über einen
+        # anderen Pfad (z.B. info_agent, kein pending_action, kein
+        # interrupt), bliebe sonst die Entscheidung EINES VORHERIGEN
+        # Teilschritts stehen und execute_action_node würde fälschlich eine
+        # "kein Ticket"-Nachricht an einen Teilschritt hängen, der nie einen
+        # Vorschlag hatte.
+        state["last_decision"] = None
+        state["last_declined_action"] = None
+        # Gleiches Prinzip, jetzt für die Duplikat-Warnung (siehe Bericht an
+        # die Nutzerin, Punkt 5): duplicate_notice wird NUR von
+        # infrastructure_agent_node gesetzt - läuft dieser Teilschritt über
+        # einen anderen Pfad, bliebe sonst die Warnung EINES VORHERIGEN
+        # Teilschritts stehen und human_review_node würde fälschlich die
+        # Warnkarte für einen Vorschlag zeigen, der gar kein Duplikat ist.
+        # session_open_tickets NICHT zurückgesetzt - das ist eine
+        # Turn-weite, bewusst konstante Momentaufnahme (siehe state.py),
+        # kein Pro-Teilschritt-Wert.
+        state["duplicate_notice"] = None
         state["subtask_index"] += 1
         if state["subtask_index"] >= len(state["subtasks"]):
             state["active_agent"] = "__end__"
@@ -549,6 +665,36 @@ def infrastructure_agent_node(state: OnboardingState) -> OnboardingState:
         f"oder Startdatum musst du nicht erfragen."
     )
 
+    # Bugfix (siehe Bericht an die Nutzerin): der Entwurf hier wird
+    # geschrieben, BEVOR feststeht, dass eine Bestätigungskarte erscheint
+    # (die separate Extraktion, die "needed" entscheidet, läuft erst
+    # danach) - ohne diese Anweisung zählte das Modell Betreff/Beschreibung/
+    # Priorität im Fließtext auf UND fragte am Ende erneut nach
+    # Bestätigung, obwohl die Karte (falls sie kommt) genau das bereits
+    # zeigt/abfragt. Gilt deshalb unbedingt, nicht nur "falls eine Karte
+    # kommt" - Card-Existenz ist an dieser Stelle noch nicht bekannt.
+    # Bugfix, zweite Runde (siehe Bericht an die Nutzerin): "keine
+    # Aufzählung" reichte nicht - das Modell wich auf eine strukturierte
+    # Darstellung aus (JSON-Block mit betreff/kontext/prioritaet direkt
+    # nach dem Ankündigungssatz), die im Chat als abgeschnittener Code-Block
+    # gerendert wurde - schlimmer als die ursprüngliche Aufzählung. "Keine
+    # Aufzählung" allein schließt offenbar keine Formate aus, die keine
+    # Liste im engeren Sinn sind - jetzt explizit: GENAU EIN Satz, keine
+    # zweite Form daneben, in JEDER Gestalt (JSON, Code, Feld:Wert).
+    system_prompt += (
+        f"\n\nWICHTIG ZUR KÜRZE: Schlägst du (in der separaten Extraktion "
+        f"weiter unten) ein Ticket vor, zeigt eine eigene Bestätigungskarte "
+        f"danach automatisch Betreff, Kontext und Priorität an, mit eigenen "
+        f"Knöpfen zum Bestätigen/Anpassen/Ablehnen. Deine GESAMTE Antwort "
+        f"ist deshalb GENAU EIN Satz in normaler Alltagssprache, der "
+        f"ankündigt, dass du ein Ticket anlegst (z.B. \"Klar, ich lege "
+        f"dafür ein IT-Ticket an.\") - sonst NICHTS. Kein zweiter Absatz, "
+        f"kein JSON, kein Code-Block, keine Feld:Wert-Paare, keine "
+        f"Aufzählung, keine Liste, in KEINER Form - auch nicht zusätzlich "
+        f"zum Satz. Frage am Ende NICHT erneut nach Bestätigung (\"Soll ich "
+        f"das so anlegen?\" o.ä.) - das übernehmen die Knöpfe der Karte."
+    )
+
     if state.get("pruefer_issues"):
         system_prompt += (
             "\n\nDeine letzte Antwort wurde beanstandet: "
@@ -575,7 +721,11 @@ def infrastructure_agent_node(state: OnboardingState) -> OnboardingState:
     # aus der Korrekturschleife unsichtbar für die Nutzer:in (wie geplant:
     # "Korrektur läuft nur intern"), UND es entstehen nie zwei
     # Assistant-Nachrichten hintereinander in der gespeicherten Historie.
-    state["draft_response"] = response.content[0].text
+    # Bugfix, dritte Runde (siehe Bericht an die Nutzerin): der Prompt-Weg
+    # ("genau ein Satz") griff zweimal nicht zuverlässig - deterministisch
+    # im Code abgeschnitten statt ein drittes Mal am Prompt zu versuchen,
+    # siehe _strip_structured_tail().
+    state["draft_response"] = _strip_structured_tail(response.content[0].text)
 
     # 2. Strukturierte Aktions-Extraktion per Tool Use - basiert auf dem
     # ENTWURF (noch nicht bestätigt), nicht auf state["messages"]. Eigene,
@@ -597,8 +747,8 @@ def infrastructure_agent_node(state: OnboardingState) -> OnboardingState:
             "Ticket vorzuschlagen (needed=false). Das ist der SELTENE "
             "Ausnahmefall, nicht der Normalfall: fehlende Detailangaben wie "
             "Gerät oder Berechtigungsstufe verhindern kein Ticket (subject/"
-            "reason lassen sich immer aus der Anfrage ableiten) - in diesem "
-            "Fall bleibt needed=true."
+            "reason/description lassen sich immer aus der Anfrage ableiten) "
+            "- in diesem Fall bleibt needed=true."
         ),
         messages=extraction_messages,
         tools=[PROPOSE_TICKET_TOOL],
@@ -609,12 +759,42 @@ def infrastructure_agent_node(state: OnboardingState) -> OnboardingState:
     if action_data.get("needed"):
         state["pending_action"] = {
             "tool": "create_ticket",
-            "args": {"department": "IT", "subject": action_data.get("subject", "IT-Anliegen")},
+            "args": {
+                "department": "IT",
+                "subject": action_data.get("subject", "IT-Anliegen"),
+                # Pflichtfelder im Tool-Schema (siehe PROPOSE_TICKET_TOOL) -
+                # .get()-Fallback hier trotzdem, falls das Modell sie je
+                # ausließe, nicht als erwarteter Normalfall.
+                "priority": action_data.get("priority", "normal"),
+                # An die IT gerichtet, dritte Person - NICHT "reason" (siehe
+                # PROPOSE_TICKET_TOOL für die Unterscheidung). Landet in
+                # create_ticket() (tools.py) und damit im Ticket selbst.
+                "description": action_data.get("description", ""),
+            },
             "reason": action_data.get("reason", ""),
             "department": "IT",
             # Feste Policy statt Modelleinschätzung, siehe criticality_policy.py.
             "is_critical": is_tool_critical("create_ticket"),
         }
+        # Duplikat-Erkennung (siehe Bericht an die Nutzerin, Punkt 5):
+        # sandbox_state ist PRO THREAD, eine neue Anfrage sieht Tickets aus
+        # anderen Anfragen derselben Sitzung sonst nie - state["session_open_
+        # tickets"] wird deshalb von der API-Schicht (routes.py) VOR diesem
+        # Turn session-weit befüllt (nur offene Tickets, siehe dort). Wort-
+        # abgleich über text_matching.py - dieselbe Technik wie Suche/
+        # Eskalation, kein neuer Mechanismus. Warntext exakt aus dem Design
+        # übernommen (ConfirmationCard, node 229:5694), nicht neu erfunden.
+        new_subject_words = tokenize(action_data.get("subject", ""))
+        state["duplicate_notice"] = None
+        if new_subject_words:
+            for existing in state.get("session_open_tickets") or []:
+                existing_words = tokenize(existing.get("subject", ""))
+                if existing_words and any_word_matches(new_subject_words, existing_words):
+                    state["duplicate_notice"] = (
+                        f"Es gibt schon ein offenes Ticket mit dem Betreff "
+                        f"{existing.get('subject', '')}"
+                    )
+                    break
     else:
         state["pending_action"] = None
 
@@ -625,8 +805,57 @@ def infrastructure_agent_node(state: OnboardingState) -> OnboardingState:
 # Info-Agent: allgemeine organisatorische Fragen, nutzt search_documents
 # ---------------------------------------------------------------------------
 
+# Zusätzlich zu text_matching.STOPWORDS (dort generisch für den Abgleich
+# GEGEN Dokumente gedacht - "durchsuchen"/"knowledge"/"hub" sind dafür
+# bewusst KEINE Stoppwörter, ein Satz wie "durchsuche den Hub nach
+# Urlaubsregeln" soll ja weiterhin über "urlaubsregeln" treffen). Für die
+# Frage "wurde überhaupt ein Thema genannt?" (siehe Bericht an die
+# Nutzerin, Schritt 6) sind diese Wörter aber leer - sie beschreiben die
+# Suchhandlung selbst oder ihr generisches Ziel, nicht das gesuchte
+# Thema. Ohne diesen Zusatzfilter würde z.B. "Ich würde gern im
+# Knowledge-Hub etwas nachschlagen." (newRequestSuggestions.ts) fälschlich
+# als "hat ein Thema" durchgehen, weil keins dieser Wörter ein
+# STOPWORDS-Eintrag im generischen Sinn ist - siehe text_matching.py.
+_SEARCH_META_WORDS = {
+    "durchsuchen", "durchsuche", "suchen", "suche", "nachschlagen",
+    "nachschlage", "finden", "raussuchen", "knowledge", "hub",
+    "wissensdatenbank", "wissenshub", "etwas", "irgendetwas", "mal",
+    "thema", "stichwort", "gern", "wurde",
+}
+
+NO_SEARCH_TOPIC_RESPONSE = (
+    "Ich kann den Knowledge-Hub gern durchsuchen, brauche aber noch ein "
+    "Stichwort oder Thema, wonach ich suchen soll."
+)
+
+
+def _has_recognizable_search_topic(query: str) -> bool:
+    """True, wenn nach text_matching.tokenize() UND Abzug der
+    Suchhandlungs-Metawörter oben noch mindestens ein Wort übrig bleibt -
+    siehe _SEARCH_META_WORDS-Kommentar. Deterministisch, kein Modellaufruf
+    (dieselbe Begründung wie bei criticality_policy.py/suggestion_policy.py:
+    der Fall ist eindeutig genug, um ihn nicht dem Modell zu überlassen)."""
+    return bool(tokenize(query) - _SEARCH_META_WORDS)
+
+
 def info_agent_node(state: OnboardingState) -> OnboardingState:
     query = state["current_task"]
+
+    # Deterministische Themen-Erkennung VOR der Suche (siehe Bericht an die
+    # Nutzerin, Schritt 6): fehlt ein erkennbares Thema, ist eine Suche
+    # garantiert leer, unabhängig vom genauen Wortlaut - dieselbe Sorte
+    # Rückfrage-vor-Handlung wie bei scheduling_agent_node (Wochentag/
+    # Uhrzeit), hier aber deterministisch statt über einen freien
+    # Modell-Entwurf gelöst (siehe _has_recognizable_search_topic-
+    # Docstring). Betrifft nicht nur den Knowledge-Hub-Einstiegsvorschlag -
+    # jede Nutzer:in-Formulierung ohne Suchbegriff (z.B. "kannst du mal was
+    # nachschlagen?") nimmt denselben Zweig, das war der eigentliche Fund.
+    if not _has_recognizable_search_topic(query):
+        state["last_search_results"] = None
+        state["draft_response"] = NO_SEARCH_TOPIC_RESPONSE
+        state["pending_action"] = None
+        return state
+
     results = AVAILABLE_TOOLS["search_documents"](state["sandbox_state"], query)
     # Additiv fürs Rationale-Feld der API-Schicht (siehe backend/api/rationale.py) -
     # rein informativ, wird von keinem anderen Knoten/Routing gelesen.
@@ -795,6 +1024,30 @@ def scheduling_agent_node(state: OnboardingState) -> OnboardingState:
         f"an, einen Termin innerhalb dieser Woche einzutragen, falls das passt."
     )
 
+    # Bugfix (siehe Bericht an die Nutzerin, gleiche Ursache wie beim
+    # infrastructure_agent): der Entwurf wird geschrieben, BEVOR feststeht,
+    # dass eine Bestätigungskarte erscheint - gilt deshalb unbedingt.
+    #
+    # Bugfix, zweite Runde (siehe Bericht an die Nutzerin, gleicher Fund wie
+    # beim infrastructure_agent): "keine Aufzählung" schloss offenbar keine
+    # strukturierte Darstellung aus, die keine Liste im engeren Sinn ist -
+    # das Modell wich auf einen JSON-Block aus, der als abgeschnittener
+    # Code-Block im Chat landete. Jetzt explizit: GENAU EIN Satz, keine
+    # zweite Form daneben, in JEDER Gestalt.
+    system_prompt += (
+        f"\n\nWICHTIG ZUR KÜRZE: Schlägst du (in der separaten Extraktion "
+        f"weiter unten) einen Termin vor, zeigt eine eigene Bestätigungskarte "
+        f"danach automatisch Wochentag, Uhrzeit, Ort und Organisator:in an, "
+        f"mit eigenen Knöpfen zum Bestätigen/Anpassen/Ablehnen. Deine "
+        f"GESAMTE Antwort ist deshalb GENAU EIN Satz in normaler "
+        f"Alltagssprache, der ankündigt, dass du den Termin einträgst - "
+        f"sonst NICHTS. Kein zweiter Absatz, kein JSON, kein Code-Block, "
+        f"keine Feld:Wert-Paare, keine Aufzählung, keine Liste, in KEINER "
+        f"Form - auch nicht zusätzlich zum Satz. Frage am Ende NICHT erneut "
+        f"nach Bestätigung (\"Soll ich das so eintragen?\" o.ä.) - das "
+        f"übernehmen die Knöpfe der Karte."
+    )
+
     # 1. Antwort-Entwurf generieren (siehe infrastructure_agent_node für die
     # Begründung von _messages_ending_with_user hier).
     call_messages = _messages_ending_with_user(
@@ -809,7 +1062,10 @@ def scheduling_agent_node(state: OnboardingState) -> OnboardingState:
     )
     # NICHT direkt an state["messages"] anhängen - erst nach Prüfer-Freigabe
     # (siehe pruefer_node, gleiches Prinzip wie bei den anderen Sub-Agenten).
-    state["draft_response"] = response.content[0].text
+    # Bugfix, dritte Runde (siehe Bericht an die Nutzerin, gleicher Fund wie
+    # beim infrastructure_agent): deterministisch abgeschnitten statt ein
+    # drittes Mal am Prompt zu versuchen, siehe _strip_structured_tail().
+    state["draft_response"] = _strip_structured_tail(response.content[0].text)
 
     # 2. Strukturierte Aktions-Extraktion per Tool Use - analog
     # infrastructure_agent_node, nur mit dem Kalender-Tool-Schema. Braucht
@@ -990,6 +1246,30 @@ def _human_review_needs_interrupt(state: OnboardingState) -> bool:
     return True  # "high"
 
 
+# Decision-Strings aus interrupt() sind Imperativ (Knopfbeschriftungen,
+# siehe human_review_node/updated_query_node "options") - für den Verlauf
+# (state["messages"]) braucht es die abgeschlossene Handlung, nicht die
+# Aufforderung ("bestätigen" klingt als Nutzernachricht falsch, "Bestätigt"
+# sagt, was passiert ist). EINE Quelle für beide Knoten (siehe Bericht an
+# die Nutzerin), nicht in human_review_node UND updated_query_node kopiert.
+# "anpassen" bleibt bewusst Infinitiv - das ist eine Aufforderung, keine
+# abgeschlossene Handlung. WICHTIG: nur für die ANZEIGE im Verlauf - der
+# Wert, der tatsächlich an POST /resume ging (die `decision`-Variable in
+# beiden Knoten), bleibt unverändert und wird NIE überschrieben, sonst
+# erkennt human_review_node die Zustimmung nicht mehr.
+DECISION_PAST_TENSE = {
+    "bestätigen": "Bestätigt",
+    "ablehnen": "Abgelehnt",
+    "anpassen": "Anpassen",
+    "abbrechen": "Abgebrochen",
+    "trotzdem bestätigen": "Trotzdem bestätigt",
+}
+
+
+def _decision_as_history_text(decision: str) -> str:
+    return DECISION_PAST_TENSE.get(decision, decision)
+
+
 def announce_confirmation_node(state: OnboardingState) -> OnboardingState:
     """Sitzt zwischen context_check und human_review/updated_query, NUR um
     den 'interrupt_raised'-Log-Eintrag GENAU EINMAL zu schreiben, bevor der
@@ -1018,6 +1298,17 @@ def announce_confirmation_node(state: OnboardingState) -> OnboardingState:
     if target_node == "human_review" and not _human_review_needs_interrupt(state):
         return state
 
+    # change_notice: G13 ("Zustand hat sich geändert") bei updated_query,
+    # Duplikat-Warnung (siehe Bericht an die Nutzerin, Punkt 5) bei
+    # human_review - zwei unabhängige Quellen für dasselbe Feld, je nach
+    # Zielknoten.
+    if target_node == "updated_query":
+        change_notice = state.get("change_description")
+    elif target_node == "human_review":
+        change_notice = state.get("duplicate_notice")
+    else:
+        change_notice = None
+
     log_interaction(
         category="interrupt_raised",
         node=target_node,
@@ -1025,7 +1316,7 @@ def announce_confirmation_node(state: OnboardingState) -> OnboardingState:
         task=state.get("current_task"),
         channel=state["channel"],
         proposal=state.get("pending_action"),
-        change_notice=state.get("change_description") if target_node == "updated_query" else None,
+        change_notice=change_notice,
     )
     return state
 
@@ -1047,6 +1338,20 @@ def updated_query_node(state: OnboardingState) -> OnboardingState:
         "change_notice": state.get("change_description"),
         "options": ["trotzdem bestätigen", "abbrechen"],
     })
+    # Bugfix (siehe Bericht an die Nutzerin): der Klick auf einen
+    # Bestätigungskarten-Knopf stand bisher NICHT im Verlauf, obwohl er
+    # eine echte Entscheidung der Nutzer:in ist - für eine getippte Antwort
+    # gilt das nicht. Läuft genau EINMAL: alles nach interrupt() wird bei
+    # einem raisenden Aufruf nie erreicht (siehe announce_confirmation_node-
+    # Docstring), nur der Resume-Durchlauf kommt hier vorbei.
+    #
+    # Bugfix, zweite Runde (siehe Bericht an die Nutzerin): im Verlauf soll
+    # die abgeschlossene Handlung stehen, nicht die Knopfbeschriftung
+    # (Imperativ) - siehe DECISION_PAST_TENSE. NUR für die Anzeige: `decision`
+    # selbst bleibt unverändert, die Vergleiche unten (== "trotzdem
+    # bestätigen") und log_interaction() nutzen weiterhin den Original-Wert.
+    state["messages"].append({"role": "user", "content": _decision_as_history_text(decision)})
+    state["last_decision"] = decision
     log_interaction(
         category="confirm",
         node="updated_query",
@@ -1057,6 +1362,10 @@ def updated_query_node(state: OnboardingState) -> OnboardingState:
         context_changed=True,
     )
     if decision != "trotzdem bestätigen":
+        # last_declined_action VOR dem Zurücksetzen sichern - execute_action_node
+        # (siehe dort) braucht Tool/Betreff für den Ablehn-/Anpass-Text, die sind
+        # nach dieser Zeile sonst verloren.
+        state["last_declined_action"] = state["pending_action"]
         state["pending_action"] = None
     state["dot_status"] = "idle"
     return state
@@ -1083,16 +1392,39 @@ def human_review_node(state: OnboardingState) -> OnboardingState:
     # VORHER in announce_confirmation_node, nicht hier - siehe identischer
     # Kommentar in updated_query_node.
     state["dot_status"] = "waiting"
+    # Duplikat-Warnung (siehe Bericht an die Nutzerin, Punkt 5): läuft über
+    # dieselbe Warnkarten-Optik wie der G13-Fall (change_notice + 2-Knöpfe-
+    # Set), kein neuer Frontend-Code. duplicate_notice wird von
+    # infrastructure_agent_node gesetzt (siehe dort), bleibt sonst None -
+    # dann unverändert das normale 3-Knöpfe-Set.
+    duplicate_notice = state.get("duplicate_notice")
+    options = ["trotzdem bestätigen", "abbrechen"] if duplicate_notice else ["bestätigen", "anpassen", "ablehnen"]
     decision = interrupt({
         "proposal": state["pending_action"],
-        "options": ["bestätigen", "anpassen", "ablehnen"],
+        "change_notice": duplicate_notice,
+        "options": options,
     })
+    # Bugfix (siehe Bericht an die Nutzerin, gleiche Begründung wie in
+    # updated_query_node): der Knopfdruck soll wie eine getippte Antwort im
+    # Verlauf erscheinen - als abgeschlossene Handlung, nicht als
+    # Knopfbeschriftung (siehe DECISION_PAST_TENSE). `decision` selbst
+    # bleibt unverändert, siehe dortiger Kommentar.
+    state["messages"].append({"role": "user", "content": _decision_as_history_text(decision)})
+    state["last_decision"] = decision
     log_interaction(
         category="confirm", node="human_review",
         session_id=state["session_id"], task=state.get("current_task"),
         channel=state["channel"], decision=decision,
     )
-    if decision != "bestätigen":
+    # Zustimmender Wert hängt vom gezeigten Knopf-Set ab (siehe oben) - bei
+    # einer Duplikat-Warnung ist "trotzdem bestätigen" die Zustimmung, sonst
+    # "bestätigen". Ein fester Vergleich auf "bestätigen" hätte im
+    # Duplikat-Fall die Zustimmung fälschlich als Ablehnung behandelt.
+    affirmative = "trotzdem bestätigen" if duplicate_notice else "bestätigen"
+    if decision != affirmative:
+        # last_declined_action VOR dem Zurücksetzen sichern - siehe Kommentar
+        # in updated_query_node.
+        state["last_declined_action"] = state["pending_action"]
         state["pending_action"] = None
     state["dot_status"] = "idle"
     return state
@@ -1286,6 +1618,41 @@ def _execution_confirmation_text(action: dict) -> str:
     return "Erledigt."
 
 
+def _decline_confirmation_text(action: dict) -> str:
+    """Bewusst KEIN LLM-Aufruf, gleiches Prinzip wie
+    _execution_confirmation_text() - reine, deterministische Bestätigung,
+    dass NICHTS ausgeführt wurde (siehe Bericht an die Nutzerin: vorher
+    blieb Lumi bei "ablehnen" stumm, weil execute_action_node ohne
+    pending_action einfach gar nichts tat)."""
+    tool = action.get("tool")
+    if tool == "create_ticket":
+        return "Alles klar, ich lege kein Ticket an."
+    if tool == "add_calendar_event":
+        return "Alles klar, ich trage den Termin nicht ein."
+    return "Alles klar, das mache ich nicht."
+
+
+def _adjust_prompt_text(action: dict) -> str:
+    """Bewusst KEIN LLM-Aufruf - reine Rückfrage. Das eigentliche Anpassen
+    passiert im NÄCHSTEN Turn per normaler Nutzer-Nachricht: die volle
+    Konversation inkl. dieser Rückfrage steht dem jeweiligen Sub-Agenten
+    dann wieder zur Verfügung (state["messages"], siehe infrastructure_
+    agent_node/scheduling_agent_node) - kein eigener "Bearbeiten"-
+    Mechanismus nötig, das ergibt sich aus dem normalen Gesprächsverlauf."""
+    tool = action.get("tool")
+    args = action.get("args") or {}
+    subject = args.get("subject") or args.get("title")
+    if tool == "create_ticket":
+        if subject:
+            return f"Klar, was möchtest du an „{subject}“ ändern?"
+        return "Klar, was möchtest du am Ticket ändern?"
+    if tool == "add_calendar_event":
+        if subject:
+            return f"Klar, was möchtest du an „{subject}“ ändern?"
+        return "Klar, was möchtest du am Termin ändern?"
+    return "Klar, was möchtest du ändern?"
+
+
 def execute_action_node(state: OnboardingState) -> OnboardingState:
     action = state["pending_action"]
     if action:
@@ -1303,6 +1670,24 @@ def execute_action_node(state: OnboardingState) -> OnboardingState:
         # "...erstellt/eingetragen/gesendet"-Schritt der obigen
         # Bestätigungsnachricht festgehalten.
         state["last_executed_action"] = action
+    else:
+        # Bugfix (siehe Bericht an die Nutzerin): "ablehnen"/"anpassen"
+        # (bzw. "abbrechen" im G13-Fall) liefen bisher hier komplett still
+        # durch - state["last_decision"]/state["last_declined_action"]
+        # (gesetzt in human_review_node/updated_query_node, siehe dort)
+        # unterscheiden das jetzt von "es gab nie einen Vorschlag" (z.B.
+        # info_agent-Pfad, wo beide Felder None bleiben - siehe Reset in
+        # supervisor_node/_base_state()).
+        decision = state.get("last_decision")
+        declined_action = state.get("last_declined_action")
+        if declined_action and decision in ("ablehnen", "abbrechen"):
+            state["messages"].append(
+                {"role": "assistant", "content": _decline_confirmation_text(declined_action)}
+            )
+        elif declined_action and decision == "anpassen":
+            state["messages"].append(
+                {"role": "assistant", "content": _adjust_prompt_text(declined_action)}
+            )
     state["pending_action"] = None
     state["dot_status"] = "idle"
     # Zurück zum Supervisor statt direkt zu enden - prüft dort, ob es

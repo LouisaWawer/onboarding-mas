@@ -82,6 +82,7 @@ def _base_state(
     sandbox_state: dict,
     channel: str = "dm",
     pruefer_verdict: Optional[str] = None,
+    session_open_tickets: Optional[list[dict]] = None,
 ) -> dict:
     """Vollständiges OnboardingState-Dict (siehe agent/state.py) mit den
     Feldern für einen NEUEN Durchlauf ("Ersteingang"). Gleiche Feldliste
@@ -128,18 +129,42 @@ def _base_state(
         "last_search_results": None,
         "last_colleague": None,
         "last_executed_action": None,
+        # Gleiches Prinzip wie die drei Felder oben (siehe deren Kommentar) -
+        # jetzt für die Ablehnen/Anpassen-Erkennung in execute_action_node
+        # (siehe Bericht an die Nutzerin). Zweiter, weniger kritischer
+        # Reset-Ort (Per-Turn) - der kritischere sitzt in supervisor_node,
+        # check_target=="next_subtask" (Per-Teilschritt).
+        "last_decision": None,
+        "last_declined_action": None,
+        # Duplikat-Erkennung über Anfragen-Grenzen hinweg (siehe Bericht an
+        # die Nutzerin, Punkt 5) - read-only für den Graphen, siehe
+        # state.py. Default [] hier (z.B. für build_preseed_states(), die
+        # session_open_tickets nicht übergibt) - der echte, session-weite
+        # Wert kommt für normale Turns über build_fresh_turn_input() unten.
+        "session_open_tickets": session_open_tickets or [],
+        "duplicate_notice": None,
     }
 
 
 def build_fresh_turn_input(
-    *, thread_id: str, current_values: dict, user_text: str, channel: str
+    *,
+    thread_id: str,
+    current_values: dict,
+    user_text: str,
+    channel: str,
+    session_open_tickets: Optional[list[dict]] = None,
 ) -> dict:
     """State-Input für einen NEUEN Nutzer-Turn auf einem (ggf. bereits
     bestehenden) Thread: bestehende messages + sandbox_state bleiben
     erhalten, alle Pro-Turn-Felder (Korrekturschleife, pending_action,
     Zerlegung, ...) werden zurückgesetzt - sonst würde ein neuer Turn
     versehentlich mitten in der Teilschritt-/Korrekturschleife des
-    VORHERIGEN Turns weiterlaufen."""
+    VORHERIGEN Turns weiterlaufen.
+
+    session_open_tickets (siehe Bericht an die Nutzerin, Punkt 5): vom
+    Aufrufer (routes.py) session-weit ermittelt, NICHT hier - dieses Modul
+    kennt nur EINEN Thread (current_values), keine Session/anderen Threads.
+    """
     existing_messages = list(current_values.get("messages") or [])
     existing_messages.append({"role": "user", "content": user_text})
     sandbox_state = current_values.get("sandbox_state") or {}
@@ -148,6 +173,7 @@ def build_fresh_turn_input(
         messages=existing_messages,
         sandbox_state=sandbox_state,
         channel=channel,
+        session_open_tickets=session_open_tickets,
     )
 
 
@@ -326,11 +352,33 @@ def run_turn_in_background(
         # der Exception selbst nie fertig geschrieben - deshalb hier über
         # graph.update_state() von außen angehängt (dieselbe öffentliche
         # LangGraph-API wie in test_context_recheck.py, keine Umgehung).
+        #
+        # Bugfix (siehe Bericht an die Nutzerin): OHNE as_node/active_agent
+        # blieb snapshot.next auf dem Knoten stehen, der wegen der Exception
+        # nie fertig geschrieben hat - die Anfrage war danach dauerhaft
+        # gesperrt (post_message() prüft zwar active_threads und
+        # interrupts, aber nicht next; das eigentliche Problem lag aber
+        # tiefer: ein hängendes next ist ein inkonsistenter Graph-Zustand,
+        # kein reines Anzeigeproblem). Löst das nach demselben, bereits an
+        # anderer Stelle bewährten Prinzip wie build_preseed_states()
+        # (siehe dort): as_node="supervisor" lässt LangGraph next über
+        # route_from_supervisor() neu auflösen, die NUR state["active_agent"]
+        # liest - unabhängig davon, welcher der zwölf Knoten tatsächlich
+        # geworfen hat (siehe graph.py: nicht jeder Knoten führt zurück zu
+        # supervisor, aber route_from_supervisor() selbst ist von der
+        # Herkunft unabhängig). active_agent="__end__" ist in dieser
+        # Mapping-Funktion bereits fest auf END abgebildet (siehe
+        # route_from_supervisor()/build_graph() in graph.py) - der Lauf gilt
+        # damit als regulär beendet, kein Sonderknoten nötig. Ein
+        # nachfolgender neuer Turn überschreibt active_agent ohnehin wieder
+        # (siehe _base_state()), keine Altlast für spätere Läufe.
         snapshot = graph.get_state(config)
         values = snapshot.values or {}
         messages = list(values.get("messages") or [])
         messages.append({"role": "assistant", "content": ERROR_MESSAGE_TEXT})
-        graph.update_state(config, {"messages": messages})
+        graph.update_state(
+            config, {"messages": messages, "active_agent": "__end__"}, as_node="supervisor"
+        )
 
         # Läuft NICHT über _publish_message(): die kommt aus einem echten
         # graph.stream()-Chunk, den es hier nie gab. rationale=None ist
@@ -374,11 +422,24 @@ def _publish_message(
     session_id: str,
     thread_id: str,
 ) -> None:
+    # Bugfix (siehe Bericht an die Nutzerin): rationale gehört strukturell
+    # NUR zu einer Assistant-Nachricht (sie beschreibt, was LUMI getan hat) -
+    # seit human_review_node/updated_query_node den Knopfdruck der
+    # Nutzer:in als eigene "user"-Nachricht anhängen (siehe dort), würde
+    # build_rationale() sonst z.B. den noch unveränderten pending_action
+    # ("Ticket vorgeschlagen") an genau DIESE Nachricht hängen, obwohl sie
+    # gar nichts vorschlägt, sondern nur die eigene Entscheidung der
+    # Nutzer:in wiedergibt. Explizit auf role=="assistant" geprüft statt
+    # implizit vorauszusetzen - betrifft aktuell nur diesen einen neuen
+    # Fall, war vorher nie beobachtbar (bis dahin gab es keine per
+    # message_appended publizierten user-Nachrichten).
+    if message["role"] != "assistant":
+        rationale = None
     # execute_action_node braucht die EIGENE, Ausführungs-Modus-Ableitung
     # (state["last_executed_action"], nicht state["pending_action"] - siehe
     # rationale.build_execution_rationale) - alle anderen Knoten (pruefer,
     # escalate) nutzen weiterhin die allgemeine build_rationale().
-    if node_name == "execute_action":
+    elif node_name == "execute_action":
         rationale = build_execution_rationale(node_state)
     else:
         rationale = build_rationale(node_state)
@@ -403,29 +464,31 @@ def to_resume_command(decision: str) -> Command:
 
 
 def derive_status(snapshot: Any, status_override: Optional[str] = None) -> str:
-    """Statuswert rein aus dem Checkpoint-Snapshot UND (nachrangig) einem
-    Store-Override abgeleitet - KEINE separate Laufzeit-Registry, damit ein
-    Reload/Anfragewechsel den Status allein aus GET /thread/GET /session
-    rekonstruieren kann (siehe Auftrag Punkt 5).
+    """Statuswert rein aus dem Checkpoint-Snapshot UND (vorrangig, siehe
+    unten) einem Store-Override abgeleitet - KEINE separate Laufzeit-
+    Registry, damit ein Reload/Anfragewechsel den Status allein aus
+    GET /thread/GET /session rekonstruieren kann (siehe Auftrag Punkt 5).
 
     - snapshot.interrupts nicht leer -> "waiting" (ein interrupt() wartet,
       strukturell eindeutig aus dem Checkpoint lesbar).
-    - snapshot.next nicht leer (aber kein interrupt) -> "working": der
-      nächste Knoten ist geplant, aber sein Schritt-Checkpoint wurde noch
-      nicht geschrieben, was bei diesem Graphen (keine interrupt_before/
-      after-Konfiguration, nur explizite interrupt()-Aufrufe) in der Praxis
-      genau dem Zeitraum entspricht, in dem der Hintergrund-Lauf gerade
-      aktiv ist. Randfall: nach einem Serverabsturz mitten im Lauf bliebe
-      das dauerhaft auf "working" stehen, bis die nächste Nachricht
-      gesendet wird - für einen Ein-Prozess-Prototyp ohne Reconnect-Logik
-      (siehe "NICHT BAUEN") akzeptiert, siehe Bericht an die Nutzerin.
-    - sonst -> status_override, falls gesetzt (z.B. "result"/"error" -
-      "wurde das gesehen" ist Interaktionsmetadatum, kein Graph-Zustand,
-      lebt deshalb in Store, nicht im Checkpoint, siehe store.py). Checkpoint
-      schlägt den Override IMMER (ein gerade wieder aktiver Lauf überschreibt
-      eine alte, noch nicht gesehene Ergebnis-/Fehlermeldung in der Anzeige -
-      der Override selbst wird beim nächsten Laufstart aktiv zurückgesetzt,
-      siehe run_turn_in_background()).
+    - status_override gesetzt (z.B. "result"/"error") -> dieser gewinnt,
+      VOR snapshot.next. Begründung (Korrektur ggü. einer früheren Fassung
+      dieser Funktion, die snapshot.next zuerst prüfte): status_override
+      ist NUR gesetzt, wenn gerade KEIN Lauf aktiv ist - run_turn_in_background()
+      setzt ihn beim Laufstart als Allererstes auf None zurück, bevor
+      graph.stream() überhaupt beginnt. Ist der Override also gesetzt, kann
+      snapshot.next zu diesem Zeitpunkt nicht mehr "ein echter, gerade
+      laufender Schritt" bedeuten - es kann nur noch ein Checkpoint sein,
+      dessen "next" nach einem mitten im Knoten geworfenen Fehler nie auf
+      leer aufgelöst wurde (LangGraph schreibt den Folge-Checkpoint für
+      einen Schritt erst NACH dessen erfolgreichem Abschluss). Ohne diese
+      Umkehrung bliebe eine Anfrage nach jedem Fehler für immer auf
+      "working" hängen, obwohl status_override korrekt "error" sagt - siehe
+      Bericht an die Nutzerin. Der Override selbst wird beim nächsten
+      Laufstart wieder zurückgesetzt, siehe run_turn_in_background().
+    - sonst: snapshot.next nicht leer -> "working" (kein Override gesetzt,
+      also GENAU der Zeitraum, in dem ein Hintergrund-Lauf gerade aktiv
+      ist).
     - sonst -> "idle".
 
     Bewusst KEINE feste Werteliste für status_override (kein `in (...)`-
@@ -440,10 +503,10 @@ def derive_status(snapshot: Any, status_override: Optional[str] = None) -> str:
     """
     if snapshot.interrupts:
         return "waiting"
-    if snapshot.next:
-        return "working"
     if status_override:
         return status_override
+    if snapshot.next:
+        return "working"
     return "idle"
 
 
@@ -479,14 +542,27 @@ def session_has_live_anfrage(store: Store, graph: Any, session_id: str) -> bool:
 
 
 def resolve_pending_suggestion(store: Store, graph: Any, session_id: str) -> Optional[dict]:
-    """{'screen':..., 'text':...} oder None - wendet den LESEZEIT-Vorrang
-    an (siehe session_has_live_anfrage): die gespeicherte Spalte
-    (pending_suggestion_screen) bleibt unangetastet, wird aber NICHT
-    angezeigt, solange irgendetwas in der Session aktiv ist. Sobald die
-    Session wieder ruhig ist, taucht derselbe Vorschlag unverändert
-    wieder auf - die Unterdrückung ist eine reine Anzeige-Entscheidung,
-    kein Löschen (siehe Bericht an die Nutzerin, eigener Testfall dafür:
-    test_vorschlag_wird_bei_laufender_anfrage_lesezeitig_unterdrueckt_und_kehrt_zurueck)."""
+    """{'screen':..., 'title':..., 'options':[...], 'acknowledged':...} oder
+    None - wendet den LESEZEIT-Vorrang an (siehe session_has_live_anfrage):
+    die gespeicherte Spalte (pending_suggestion_screen) bleibt unangetastet,
+    wird aber NICHT angezeigt, solange irgendetwas in der Session aktiv
+    ist. Sobald die Session wieder ruhig ist, taucht derselbe Vorschlag
+    unverändert wieder auf - die Unterdrückung ist eine reine Anzeige-
+    Entscheidung, kein Löschen (siehe Bericht an die Nutzerin, eigener
+    Testfall dafür:
+    test_vorschlag_wird_bei_laufender_anfrage_lesezeitig_unterdrueckt_und_kehrt_zurueck).
+
+    Karte statt Einzelzeile seit Schritt 6 (Design-Korrektur) - siehe
+    suggestion_policy.py.
+
+    `acknowledged` (Bugfix, Schritt 6, Testpunkt-8-Nachbesserung): der
+    Vorschlag selbst bleibt hier IMMER vollständig enthalten, auch wenn
+    er schon "bestätigt" (Panel geöffnet, Punkt beruhigt) ist - das
+    Frontend entscheidet anhand dieses Felds, ob es zusätzlich den
+    peripheren Punkt ansteuert (pendingSuggestion) oder nur die Karte
+    zeigt (displayedSuggestion), siehe AgentState.tsx. Ohne dieses Feld
+    würde ein Reload nach dem Bestätigen den Punkt wieder unnötig auf
+    "suggestion" springen lassen."""
     screen = store.get_pending_suggestion(session_id)
     if screen is None:
         return None
@@ -495,4 +571,9 @@ def resolve_pending_suggestion(store: Store, graph: Any, session_id: str) -> Opt
     suggestion = SUGGESTION_POLICY.get(screen)
     if suggestion is None:
         return None
-    return {"screen": screen, "text": suggestion["displayed"]}
+    return {
+        "screen": screen,
+        "title": suggestion["title"],
+        "options": suggestion["options"],
+        "acknowledged": store.is_pending_suggestion_acknowledged(session_id),
+    }

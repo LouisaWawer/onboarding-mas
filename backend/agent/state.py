@@ -59,3 +59,25 @@ class OnboardingState(TypedDict):
     last_search_results: Optional[list[dict]]  # info_agent_node: Rückgabe von search_documents
     last_colleague: Optional[dict]             # escalate_node: Rückgabe von find_colleague_for_topic
     last_executed_action: Optional[PendingAction]  # execute_action_node: die gerade ausgeführte Aktion (pending_action ist zu diesem Zeitpunkt schon auf None gesetzt)
+
+    # human_review_node/updated_query_node: die vom interrupt() zurückgegebene
+    # Entscheidung ("bestätigen"/"anpassen"/"ablehnen"/"trotzdem bestätigen"/
+    # "abbrechen") und der dabei abgelehnte/anzupassende Vorschlag (pending_action
+    # ist zu diesem Zeitpunkt schon auf None gesetzt) - execute_action_node
+    # braucht beides, um bei Ablehnung/Anpassung reagieren zu können, ohne das
+    # mit "kein Vorschlag existierte" (z.B. info_agent-Pfad) zu verwechseln.
+    last_decision: Optional[str]
+    last_declined_action: Optional[PendingAction]
+
+    # Duplikat-Erkennung über Anfragen-Grenzen hinweg (siehe Bericht an die
+    # Nutzerin, Punkt 5): sandbox_state ist PRO THREAD, eine neue Anfrage
+    # sieht Tickets aus anderen Anfragen derselben Sitzung sonst nie.
+    # session_open_tickets wird VON DER API-SCHICHT (routes.py, vor jedem
+    # neuen Turn) session-weit befüllt (nur offene Tickets) - read-only für
+    # den Graphen, kein Knoten hier schreibt es. duplicate_notice wird von
+    # infrastructure_agent_node gesetzt, wenn ein neuer Ticket-Vorschlag
+    # inhaltlich mit einem bestehenden offenen Ticket übereinstimmt, und von
+    # human_review_node als change_notice der Bestätigungskarte genutzt
+    # (dieselbe Warnkarten-Optik wie der G13-Fall).
+    session_open_tickets: list[dict]
+    duplicate_notice: Optional[str]
