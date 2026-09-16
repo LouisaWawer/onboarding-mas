@@ -10,11 +10,18 @@
  * es aber keine.
  */
 
-import type { InterruptPayload, MessageOut, Rationale, StatusValue } from './client'
+import type { InterruptPayload, MessageOut, Rationale, StatusValue, SuggestionOption } from './client'
 
 export type SSEEvent =
   | { type: 'status_changed'; thread_id: string; status: StatusValue }
-  | { type: 'status_changed'; thread_id: null; status: 'suggestion'; screen: string; text: string }
+  | {
+      type: 'status_changed'
+      thread_id: null
+      status: 'suggestion'
+      screen: string
+      title: string
+      options: SuggestionOption[]
+    }
   | { type: 'status_changed'; thread_id: null; status: Exclude<StatusValue, 'suggestion'> }
   | { type: 'message_appended'; thread_id: string; message: { role: 'user' | 'assistant'; content: string }; rationale: Rationale | null }
   | ({ type: 'interrupt_pending'; thread_id: string } & InterruptPayload)

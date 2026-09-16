@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import Sidebar, { type SidebarItemId } from './components/Sidebar/Sidebar'
+import StatusDot from './components/StatusDot/StatusDot'
 import Topbar from './components/Topbar/Topbar'
 import Chat from './screens/Chat/Chat'
 import KnowledgeHub from './screens/KnowledgeHub/KnowledgeHub'
@@ -10,12 +11,16 @@ import { AppNotificationsProvider, useAppNotifications } from './state/AppNotifi
 import { ChatStateProvider } from './state/ChatState'
 import { AgentStateProvider } from './state/AgentState'
 import { NavigationProvider, useNavigation } from './state/Navigation'
+import { useScreenDwellSuggestion } from './hooks/useScreenDwellSuggestion'
 import './App.css'
 
 function AppContent() {
   const { activeScreen, navigateTo } = useNavigation()
   const [hubResetToken, setHubResetToken] = useState(0)
   const { badges } = useAppNotifications()
+  // Proaktive Screenwechsel-Vorschläge (siehe Bericht an die Nutzerin,
+  // Schritt 6) - zentral hier statt in jedem Screen einzeln, siehe Hook.
+  useScreenDwellSuggestion()
 
   function handleNavigate(id: SidebarItemId) {
     navigateTo(id)
@@ -43,6 +48,10 @@ function AppContent() {
           )}
         </main>
       </div>
+      {/* App-Level-Overlay (siehe Bericht an die Nutzerin, Schritt 5) - auf
+          jedem Screen sichtbar, unabhängig vom Screen-Router oben, kein
+          eigenes Betriebssystem-Fenster. */}
+      <StatusDot />
     </div>
   )
 }

@@ -43,9 +43,27 @@ export type AnfrageSummary = {
   status: StatusValue
 }
 
+// Karte statt Einzelzeile (siehe Bericht an die Nutzerin, Schritt 6,
+// Design-Korrektur - Figma ConfirmationCard "type=options", node
+// 219:4794). displayed = kurzes Options-Label (Button-Text), submitted =
+// tatsächlicher Nutzernachrichten-Text nach einem Klick - siehe
+// backend/api/suggestion_policy.py für die volle Begründung.
+export type SuggestionOption = {
+  displayed: string
+  submitted: string
+}
+
+// acknowledged (Bugfix, Schritt 6, Testpunkt-8-Nachbesserung): true, wenn
+// das Panel schon geöffnet wurde (Punkt beruhigt, siehe
+// postAcknowledgeSuggestion), OHNE dass der Vorschlag bereits verworfen
+// ist (Klick/X/Screenwechsel, siehe postSessionSeen) - AgentState.tsx
+// nutzt das, um pendingSuggestion (Punkt) beim Bootstrap korrekt leer zu
+// lassen, während displayedSuggestion (Karte) trotzdem gefüllt wird.
 export type PendingSuggestion = {
   screen: string
-  text: string
+  title: string
+  options: SuggestionOption[]
+  acknowledged: boolean
 }
 
 export type SessionSnapshot = {
@@ -147,6 +165,31 @@ export function postThreadSeen(threadId: string, sessionId: string): Promise<{ a
 
 export function postSessionSeen(sessionId: string): Promise<{ accepted: boolean }> {
   return request(`/session/${sessionId}/seen`, { method: 'POST' })
+}
+
+// "Punkt beruhigen", OHNE den Vorschlag zu verwerfen (siehe Bericht an die
+// Nutzerin, Schritt 6, Testpunkt-8-Nachbesserung) - Gegenstück zu
+// postSessionSeen (vollständiges Löschen). Siehe post_acknowledge_suggestion
+// (routes.py) für die volle Begründung.
+export function postAcknowledgeSuggestion(sessionId: string): Promise<{ accepted: boolean }> {
+  return request(`/session/${sessionId}/acknowledge_suggestion`, { method: 'POST' })
+}
+
+export type TicketOut = {
+  ticketid: string
+  date: string
+  topic: string
+  department: string
+  status: 'open' | 'processing' | 'done' | 'error'
+  is_new: boolean
+}
+
+export type TicketsResponse = {
+  tickets: TicketOut[]
+}
+
+export function getSessionTickets(sessionId: string, signal?: AbortSignal): Promise<TicketsResponse> {
+  return request(`/session/${sessionId}/tickets`, { signal })
 }
 
 export function postScreen(
