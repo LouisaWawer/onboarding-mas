@@ -1,0 +1,115 @@
+/* Maße/Abstände aus Figma (node 228:5579/229:5687, type=confirmation) -
+   9px Card-Padding, 16px Gap zwischen den Sektionen, 8px Innenpadding im
+   grauen Action-Block, Buttons-Reihe zentriert mit 16px Gap. Kein
+   Schließen-Kreuz (Absicht, siehe Bericht an die Nutzerin: POST /resume
+   erwartet eine Entscheidung, ein Wegklicken ließe den Interrupt offen). */
+.confirmation-card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 416px;
+  padding: 9px;
+  background-color: var(--color-window);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+  font-family: 'Inter', system-ui, sans-serif;
+}
+
+.confirmation-card__header {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.confirmation-card__warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 11px 8px;
+  background-color: var(--color-warning-muted-bg);
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--color-warning-muted);
+}
+
+.confirmation-card__warning svg {
+  flex-shrink: 0;
+}
+
+.confirmation-card__action {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  background-color: var(--color-bg);
+  border-radius: 6px;
+}
+
+.confirmation-card__context {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.confirmation-card__subject-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.confirmation-card__subject {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.confirmation-card__expand-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  padding: 0;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.confirmation-card__expand-toggle:hover {
+  color: var(--color-text);
+}
+
+/* Voller Satz (an die IT gerichtet, dritte Person) - eigene Zeile,
+   dunklerer Ton als .confirmation-card__details, da inhaltlich näher am
+   Betreff als an den kurzen Zusatzwerten (Priorität etc.) darunter. */
+.confirmation-card__description {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--color-text);
+}
+
+.confirmation-card__details {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.confirmation-card__reasoning {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--color-text-muted);
+}
+
+.confirmation-card__error {
+  margin: 0;
+  font-size: 12px;
+  color: var(--color-danger);
+}
+
+.confirmation-card__buttons {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+}

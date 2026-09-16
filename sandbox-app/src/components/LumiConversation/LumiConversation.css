@@ -1,0 +1,100 @@
+/* Aus Chat.css herausgelöst (siehe Bericht an die Nutzerin, Schritt 5) -
+   EIN Satz Klassen für beide Einbettungsorte (Chat-Screen, LumiPanel).
+   Padding bewusst auf 24px vereinheitlicht statt der ursprünglichen 40px
+   im Vollbild-Chat: die Karte/das Panel ist deutlich schmaler (Figma
+   LumiChat_Floating: 450px) als der volle Chat-Screen (904px
+   Chatbox-Breite) - ein Wert, der in beiden Kontexten vernünftig aussieht,
+   nicht pixelgenau aus einem der beiden Frames übernommen. */
+.lumi-conversation__messages {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 24px;
+}
+
+.lumi-conversation__date-divider {
+  align-self: center;
+  font-size: 12px;
+  color: var(--color-faded);
+  margin-bottom: 4px;
+}
+
+.lumi-conversation__message-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.lumi-conversation__composer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 24px 24px;
+  padding: 8px 16px;
+  background-color: var(--color-window);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+.lumi-conversation__composer textarea {
+  width: 100%;
+  border: none;
+  outline: none;
+  resize: none;
+  overflow-y: auto;
+  max-height: 160px;
+  font-size: 12px;
+  font-weight: 300;
+  font-family: 'Inter', system-ui, sans-serif;
+  color: var(--color-text);
+  background: transparent;
+}
+
+.lumi-conversation__composer textarea:disabled {
+  color: var(--color-faded);
+}
+
+.lumi-conversation__composer-icons {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.lumi-conversation__composer-divider {
+  width: 1px;
+  height: 20px;
+  background-color: var(--color-border);
+  flex-shrink: 0;
+}
+
+.lumi-conversation__composer-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--color-text);
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.lumi-conversation__composer-icon:hover {
+  color: var(--color-accent-hover);
+}
+
+.lumi-conversation__composer-icon:active {
+  color: var(--color-accent-active);
+}
+
+.lumi-conversation__composer-icon:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

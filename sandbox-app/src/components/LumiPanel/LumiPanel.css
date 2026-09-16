@@ -1,0 +1,158 @@
+/* Sitzt als Kind von .status-dot (position:fixed) - absolut positioniert.
+   Der Punkt ist per CSS ausgeblendet, solange das Panel offen ist (siehe
+   StatusDot.tsx/.css), .status-dot selbst hat dadurch keinen In-Flow-Inhalt
+   mehr und kollabiert auf 0x0 an genau der Stelle, an der der Punkt sonst
+   sitzt (right:24px/bottom:24px vom Fenster, siehe StatusDot.css) - right:0/
+   bottom:0 hier setzt das Panel deshalb GENAU dorthin, wo vorher der Punkt
+   war, statt eine Lücke zu lassen. Maße an Figma angenähert
+   (LumiChat_Floating: 450x500), nicht pixelgenau übernommen. */
+.lumi-panel {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  width: 380px;
+  height: 500px;
+  background-color: var(--color-window);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  box-shadow: -1px 3px 11px 0px rgba(0, 0, 0, 0.2);
+  overflow: hidden;
+}
+
+.lumi-panel__topbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.lumi-panel__title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--color-text);
+}
+
+.lumi-panel__icons {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.lumi-panel__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--color-text);
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.lumi-panel__icon:hover {
+  color: var(--color-accent-hover);
+}
+
+.lumi-panel__icon:active {
+  color: var(--color-accent-active);
+}
+
+/* newRequest-Zustand (siehe Bericht an die Nutzerin, Schritt 5, Punkt 3) -
+   großer Avatar, Überschrift, Einstiegsvorschläge, eigener Composer. */
+.lumi-panel__empty {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 24px;
+  overflow-y: auto;
+}
+
+.lumi-panel__empty-headline {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.lumi-panel__suggestions {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lumi-panel__suggestion {
+  display: block;
+  width: 100%;
+  padding: 10px 0;
+  border: none;
+  border-bottom: 1px solid var(--color-border);
+  background: none;
+  font-size: 13px;
+  color: var(--color-text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.lumi-panel__suggestion:hover {
+  color: var(--color-accent-hover);
+}
+
+.lumi-panel__empty-composer {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  margin-top: auto;
+  padding: 8px 16px;
+  background-color: var(--color-window);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+}
+
+.lumi-panel__empty-composer textarea {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  resize: none;
+  overflow-y: auto;
+  max-height: 120px;
+  font-size: 12px;
+  font-weight: 300;
+  font-family: 'Inter', system-ui, sans-serif;
+  color: var(--color-text);
+  background: transparent;
+}
+
+.lumi-panel__empty-send {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--color-text);
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.lumi-panel__empty-send:hover {
+  color: var(--color-accent-hover);
+}
