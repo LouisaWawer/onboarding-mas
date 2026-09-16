@@ -16,6 +16,18 @@ type MessageBoxProps = {
   initials?: string
   isLumi?: boolean
   presence?: StatusTone
+  /**
+   * Nur für from="in": rendert OHNE Bubble-Hintergrund, volle Breite -
+   * entspricht Figmas "LumiMessage" (Chat_Lumi, node 186:2048), NICHT dem
+   * MessageBox-Bubble-Look. Gilt ausschließlich für Lumis EIGENE
+   * Nachrichten im Assistenten-Chat (siehe Chat.tsx) - Kolleg:innen-DMs
+   * nutzen weiterhin den normalen grauen "in"-Bubble (die Trennung läuft
+   * über diesen expliziten Prop, nicht über isLumi, das eine andere
+   * Bedeutung hat - Avatar/Farbe). from="out" bleibt in JEDEM Fall die
+   * gefüllte Akzent-Bubble (Figma zeigt eigene Nachrichten auch im
+   * Lumi-Chat als Bubble).
+   */
+  plain?: boolean
 }
 
 /**
@@ -46,8 +58,10 @@ export default function MessageBox({
   initials,
   isLumi = false,
   presence,
+  plain = false,
 }: MessageBoxProps) {
   const isOut = from === 'out'
+  const isPlain = !isOut && plain
   return (
     <div className={`message-box ${isOut ? 'message-box--out' : 'message-box--in'}`}>
       {!isOut && showSender && senderName && (
@@ -67,7 +81,9 @@ export default function MessageBox({
             )}
           </span>
         )}
-        <div className={`message-box__bubble ${isOut ? 'message-box__bubble--out' : 'message-box__bubble--in'}`}>
+        <div
+          className={`message-box__bubble ${isOut ? 'message-box__bubble--out' : isPlain ? 'message-box__bubble--plain' : 'message-box__bubble--in'}`}
+        >
           {/* Das Modell formatiert seine Antworten in Markdown (siehe
               Bericht an die Nutzerin) - kein Rohtext mehr. Bewusst OHNE
               rehype-raw: eingebettetes HTML im Modelltext wird dadurch als

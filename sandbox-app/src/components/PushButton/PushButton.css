@@ -1,27 +1,63 @@
 .push-button {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
   height: 32px;
   padding: 0 16px;
-  border: none;
   border-radius: 4px;
-  background-color: var(--color-accent);
-  color: var(--color-overlay);
   font-family: 'Inter', system-ui, sans-serif;
   font-size: 12px;
   text-align: center;
   cursor: pointer;
 }
 
-.push-button:hover {
+/* primary: bisheriges (einziges) Aussehen - gefüllt, color/accent */
+.push-button--primary {
+  border: none;
+  background-color: var(--color-accent);
+  color: var(--color-overlay);
+}
+
+.push-button--primary:hover {
   /* Exakt wie in Figma (PushButton "hover"): color/accent + 20% Weiß-Überlagerung. */
   background-image: linear-gradient(var(--overlay-hover-white), var(--overlay-hover-white)),
     linear-gradient(var(--color-accent), var(--color-accent));
 }
 
-.push-button:active {
+.push-button--primary:active {
   /* Exakt wie in Figma (PushButton "press"): color/accent + 20% Schwarz-Überlagerung. */
   background-image: linear-gradient(var(--overlay-press-black), var(--overlay-press-black)),
     linear-gradient(var(--color-accent), var(--color-accent));
+}
+
+/* secondary: Outline-Variante (ConfirmationCard-Buttons "Anpassen"/
+   "Ablehnen"/"Abbrechen", Figma color/overlay + color/border + color/text) */
+.push-button--secondary {
+  border: 1px solid var(--color-border);
+  background-color: var(--color-overlay);
+  color: var(--color-text);
+}
+
+.push-button--secondary:hover {
+  background-color: var(--color-bg);
+}
+
+.push-button--secondary:active {
+  background-color: var(--color-border);
+}
+
+.push-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.push-button--primary:disabled:hover,
+.push-button--primary:disabled:active {
+  background-image: none;
+}
+
+.push-button--secondary:disabled:hover,
+.push-button--secondary:disabled:active {
+  background-color: var(--color-overlay);
 }

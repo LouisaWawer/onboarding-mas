@@ -1,4 +1,3 @@
-import { Sparkle } from '@phosphor-icons/react'
 import './Avatar.css'
 
 export type AvatarColor =
@@ -12,45 +11,26 @@ export type AvatarColor =
   | 'accent'
 
 type AvatarProps = {
-  /** initials = menschliche Kolleg:innen, lumi = Onboarding-Assistent */
-  icon?: 'initials' | 'lumi'
-  /** Initialen, nur bei icon="initials" relevant */
+  /** Initialen menschlicher Kolleg:innen - Lumi läuft seit Schritt 5 über
+      LumiAvatar (lumiwithsparklesmall.riv), nicht mehr über diese
+      Komponente (siehe Bericht an die Nutzerin: der frühere icon="lumi"-
+      Zweig mit statischem Sparkle-Icon ist entfernt, kein Aufrufer nutzt
+      ihn mehr). */
   initials?: string
-  /** Figma-Avatarfarbe (avatar1–avatar6), nur bei icon="initials" relevant */
   color?: AvatarColor
   size?: number
   className?: string
 }
 
-/**
- * Lumi ist genauso rund wie die Personen-Avatare – die Unterscheidung
- * Mensch/Agent erfolgt allein über das Funken-Symbol, nicht über die Form
- * (siehe docs/Fiktive_Firma_und_Kollegen.md).
- */
-export default function Avatar({
-  icon = 'initials',
-  initials = '',
-  color = 'avatar1',
-  size = 24,
-  className,
-}: AvatarProps) {
-  const isLumi = icon === 'lumi'
+export default function Avatar({ initials = '', color = 'avatar1', size = 24, className }: AvatarProps) {
   return (
     <div
       className={`avatar ${className ?? ''}`}
-      style={{
-        width: size,
-        height: size,
-        backgroundColor: isLumi ? 'var(--color-assistant)' : `var(--color-${color})`,
-      }}
+      style={{ width: size, height: size, backgroundColor: `var(--color-${color})` }}
     >
-      {isLumi ? (
-        <Sparkle size={Math.round(size * 0.6)} color="var(--color-overlay)" weight="fill" />
-      ) : (
-        <span className="avatar__initials" style={{ fontSize: Math.round(size * 0.42) }}>
-          {initials}
-        </span>
-      )}
+      <span className="avatar__initials" style={{ fontSize: Math.round(size * 0.42) }}>
+        {initials}
+      </span>
     </div>
   )
 }

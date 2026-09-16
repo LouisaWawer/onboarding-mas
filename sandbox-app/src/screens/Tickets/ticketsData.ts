@@ -12,9 +12,13 @@ export type Ticket = {
   isNew?: boolean
 }
 
-/* 1:1 aus Figma übernommen (Table, node 45:7245). */
+/* Ursprünglich 1:1 aus Figma übernommen (Table, node 45:7245). t1 wurde
+   inhaltlich ersetzt (siehe Bericht an die Nutzerin): "VPN-Zugang
+   beantragen" hätte mit dem echten, von Lumi angelegten VPN-Ticket im
+   Testskript kollidiert (zwei VPN-Zeilen, verwirrend) - "Zweiten Monitor"
+   ist thematisch eindeutig davon abgegrenzt. */
 export const tickets: Ticket[] = [
-  { id: 't1', date: '22. Aug', topic: 'VPN-Zugang beantragen', department: 'IT', status: 'open', ticketid: 'N0012', estimate: '2 Tage' },
+  { id: 't1', date: '22. Aug', topic: 'Zweiten Monitor für den Arbeitsplatz bestellen', department: 'IT', status: 'open', ticketid: 'N0012', estimate: '2 Tage' },
   {
     id: 't2',
     date: '23. Aug',

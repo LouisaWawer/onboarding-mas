@@ -59,6 +59,24 @@
   --color-presence-busy: #900b09; /* color/error (Status-Komponente) */
 
   /*
+   * ---- ConfirmationCard, state=warning (node 229:5687) ----
+   * Gleiches Muster wie oben: color/warning ist auch hier an die
+   * gedämpfte Variante gebunden, identisch zu --color-presence-absent
+   * (#bf6a02) - eigener, klar benannter Token für den Verwendungsort statt
+   * den falsch benannten Presence-Token hier zu missbrauchen (siehe
+   * --color-badge oben für dasselbe Vorgehen bei --color-presence-busy).
+   * NICHT zu verwechseln mit --color-warning (#e5a000, TaskStatus/
+   * StatusLight) - zwei real unterschiedliche, beide echte Bindungen.
+   */
+  --color-warning-muted: #bf6a02; /* color/warning (ConfirmationCard) */
+  /* Fläche hinter der Warnung: an KEINE Figma-Variable gebunden (nicht in
+     get_variable_defs enthalten), visuell geschätzt als 12%-Überlagerung
+     von --color-warning-muted auf Weiß - gleiches Overlay-Prinzip wie
+     --overlay-hover-white oben, hier als literaler rgba-Wert statt
+     color-mix() (Kompatibilität, gleiche Begründung wie dort). */
+  --color-warning-muted-bg: rgba(191, 106, 2, 0.12);
+
+  /*
    * ---- Badge (SidebarIcon, node 28:37–28:52) ----
    * Benachrichtigungspunkt in allen drei Zuständen (default/hover/active)
    * an color/error gebunden – wieder die gedämpfte Variante (#900b09,

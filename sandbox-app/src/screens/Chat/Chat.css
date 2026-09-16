@@ -120,22 +120,6 @@
   padding: 40px;
 }
 
-.chat__date-divider {
-  align-self: center;
-  font-size: 12px;
-  color: var(--color-faded);
-  margin-bottom: 4px;
-}
-
-/* Hüllt MessageBox + RationaleBlock (Schritt 3, Transparenzblock) einer
-   Agenten-Nachricht zusammen - eigener Flex-Item statt MessageBox direkt,
-   damit der Block unter der Nachricht statt zwischen zwei Nachrichten mit
-   vollem .chat__messages-Gap sitzt. */
-.chat__message-group {
-  display: flex;
-  flex-direction: column;
-}
-
 /* Entspricht Figmas "SendMessage"-Frame (node 187:2310): EINE umrandete Box,
    Text oben (wächst mit dem Inhalt), Icons unten rechts (AskLumi, Smiley |
    Trennlinie | Send) - vorher eine horizontale Zeile mit einzeiligem
@@ -219,17 +203,6 @@
   color: var(--color-assistant-active);
 }
 
-/* Platzhalter für den "waiting"-Hinweis unter dem Verlauf, bis Schritt 4
-   die echte Bestätigungskarte einbaut - "working" nutzt seit Kurzem den
-   echten Rive-Denk-Indikator (SparkleIndicator), diese Klasse gilt nur noch
-   für den Warten-Fall. */
-.chat__typing-indicator {
-  font-size: 12px;
-  font-style: italic;
-  color: var(--color-faded);
-  padding: 0 4px;
-}
-
 .chat__composer textarea:disabled {
   color: var(--color-faded);
 }
@@ -237,4 +210,20 @@
 .chat__composer-icon:disabled {
   opacity: 0.5;
   cursor: default;
+}
+
+/* Bugfix (siehe Bericht an die Nutzerin, Schritt 5, Punkt 2): der
+   periphere Punkt sitzt bewusst fest bei right:24px/bottom:24px auf JEDEM
+   Screen (siehe StatusDot.css) - er darf beim Screenwechsel nicht wandern,
+   sonst wäre er nicht mehr peripher. Im Chat lag der Senden-Knopf der
+   LumiConversation darunter, weil die Composer-Box sonst bis fast an den
+   rechten Fensterrand reicht. Nur HIER (Kontext .chat__content) zusätzlicher
+   rechter Abstand, damit die Box vor dem Punkt endet - 24px (Punkt-Offset)
+   + 64px (Punkt-Durchmesser) + 8px (chat__content-Abstand zum Fensterrand,
+   siehe .chat__content) + etwas Luft = 100px. Das Panel hat dasselbe
+   Problem NICHT (schwebt über dem Punkt, nicht daneben, siehe
+   LumiPanel.css) - deshalb keine Änderung an LumiConversation.css selbst,
+   die auch dort gilt. */
+.chat__content .lumi-conversation__composer {
+  margin-right: 100px;
 }

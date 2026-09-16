@@ -48,6 +48,19 @@
   border-radius: 4px 18px 18px 18px;
 }
 
+/* Lumis EIGENE Nachrichten im Assistenten-Chat (siehe MessageBox.tsx,
+   plain-Prop) - Figma (Chat_Lumi, "LumiMessage") zeigt hier KEINE Bubble,
+   sondern nahezu volle Breite laufenden Text ohne Hintergrund. Nur für
+   from="in" gedacht - Kolleg:innen-DMs behalten .message-box__bubble--in. */
+.message-box__bubble--plain {
+  max-width: none;
+  width: 100%;
+  padding: 4px 0;
+  background-color: transparent;
+  color: var(--color-text);
+  border-radius: 0;
+}
+
 .message-box__bubble--out {
   background-color: var(--color-accent);
   color: var(--color-overlay);

@@ -25,11 +25,3 @@
   background-color: var(--color-bg);
   border-radius: 50%;
 }
-
-/* Kann die intern in der .riv-Datei hinterlegte Bewegung nicht abschalten
-   (das steckt in der Animation selbst, nicht in dieser Wrapper-Komponente)
-   - reduziert nur, was von außen beeinflussbar ist. Siehe Bericht an die
-   Nutzerin. */
-.sparkle-indicator--reduced-motion {
-  animation: none;
-}

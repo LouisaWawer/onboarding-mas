@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import Avatar from '../../components/Avatar/Avatar'
+import LumiAvatar from '../../components/LumiAvatar/LumiAvatar'
 import { useReportBadge } from '../../state/AppNotifications'
 import { TABS, announcements, directory, company, type TabId } from './intranetData'
 import './Intranet.css'
@@ -63,12 +64,13 @@ export default function Intranet() {
             <ul className="intranet__directory">
               {directory.map((person) => (
                 <li className="intranet__person" key={person.id}>
-                  <Avatar
-                    icon={person.isLumi ? 'lumi' : 'initials'}
-                    initials={person.initials}
-                    color={person.avatarColor}
-                    size={40}
-                  />
+                  {/* Bugfix (siehe Bericht an die Nutzerin, Schritt 5):
+                      Lumi war hier statisch. */}
+                  {person.isLumi ? (
+                    <LumiAvatar size={40} />
+                  ) : (
+                    <Avatar initials={person.initials} color={person.avatarColor} size={40} />
+                  )}
                   <div className="intranet__person-info">
                     <span className="intranet__person-name">{person.name}</span>
                     <span className="intranet__person-role">{person.role}</span>

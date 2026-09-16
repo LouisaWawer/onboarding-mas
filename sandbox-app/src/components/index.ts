@@ -7,6 +7,7 @@ export type { SidebarApp, SidebarIconState } from './Sidebar/SidebarIcon'
 
 export { default as Avatar } from './Avatar/Avatar'
 export type { AvatarColor } from './Avatar/Avatar'
+export { default as LumiAvatar } from './LumiAvatar/LumiAvatar'
 
 export { default as StatusIndicator } from './StatusIndicator/StatusIndicator'
 export type { StatusTone } from './StatusIndicator/StatusIndicator'
@@ -18,6 +19,10 @@ export { default as MessageBox } from './MessageBox/MessageBox'
 export { default as RationaleBlock } from './RationaleBlock/RationaleBlock'
 export { default as LumiMessageIcons } from './LumiMessageIcons/LumiMessageIcons'
 export { default as SparkleIndicator } from './SparkleIndicator/SparkleIndicator'
+export { default as ConfirmationCard } from './ConfirmationCard/ConfirmationCard'
+export { default as LumiConversation } from './LumiConversation/LumiConversation'
+export { default as LumiPanel } from './LumiPanel/LumiPanel'
+export { default as StatusDot } from './StatusDot/StatusDot'
 
 export { default as Tree } from './Tree/Tree'
 export type { TreeNode } from './Tree/Tree'

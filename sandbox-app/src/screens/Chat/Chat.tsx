@@ -1,15 +1,12 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { CaretDown, CaretUp, ChatTeardropText, Sparkle, Smiley, PaperPlaneRight, ChatCircle } from '@phosphor-icons/react'
 import ChatListItem from '../../components/ChatListItem/ChatListItem'
-import LumiMessageIcons from '../../components/LumiMessageIcons/LumiMessageIcons'
+import LumiConversation from '../../components/LumiConversation/LumiConversation'
 import MessageBox from '../../components/MessageBox/MessageBox'
-import RationaleBlock from '../../components/RationaleBlock/RationaleBlock'
-import SparkleIndicator from '../../components/SparkleIndicator/SparkleIndicator'
 import UserWithStatus from '../../components/UserWithStatus/UserWithStatus'
 import { useReportBadge } from '../../state/AppNotifications'
 import { useChatState } from '../../state/ChatState'
 import { useAgentState } from '../../state/AgentState'
-import { formatDateDivider } from '../../utils/formatTime'
 import type { Conversation } from './chatData'
 import './Chat.css'
 
@@ -45,17 +42,19 @@ function useIconFill() {
 
 export default function Chat() {
   const { conversations, setConversations } = useChatState()
-  const { anfragen, activeThreadId, sendMessage, markThreadSeen, createAnfrage } = useAgentState()
+  const { anfragen, activeThreadId, createAnfrage } = useAgentState()
   const [selection, setSelection] = useState<ActiveSelection>({ kind: 'agent' })
   const [collapsed, setCollapsed] = useState<Record<SectionId | 'assistant', boolean>>({
     assistant: false,
     channels: false,
     dms: false,
   })
+  // Nur noch für den Kolleg:innen-Zweig - die Lumi-Konversation hat ihren
+  // eigenen Entwurf/Composer jetzt in LumiConversation.tsx (siehe Bericht
+  // an die Nutzerin, Schritt 5: "zwei Ansichten auf dieselben Daten").
   const [draft, setDraft] = useState('')
   const [smileyFilled, smileyHoverProps] = useIconFill()
   const [sendFilled, sendHoverProps] = useIconFill()
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const activeAnfrage = activeThreadId ? anfragen[activeThreadId] : undefined
   const activeConversation =
@@ -64,53 +63,20 @@ export default function Chat() {
   // Sidebar-Badge: bestehende gescriptete Konversationen ODER eine frische,
   // noch nicht gesehene Antwort/Fehlermeldung vom Agenten (siehe Bericht:
   // "result"/"error" sind genau dafür da, siehe Setup_Dokumentation.md §7).
-  // Gleiche Einschränkung wie zuvor: aktualisiert sich nur, während Chat.tsx
-  // gemountet ist (useReportBadge hat keinen Unmount-Effekt) - bestehende
-  // Limitation, nicht neu eingeführt.
   useReportBadge(
     'chat',
     conversations.some((c) => c.unread) || activeAnfrage?.status === 'result' || activeAnfrage?.status === 'error',
   )
-
-  // Wer die Anfrage gerade offen hat, hat "result"/"error" bereits gesehen -
-  // Override direkt zurücksetzen, statt auf einen separaten Statuspunkt-Klick
-  // zu warten (der kommt erst in Schritt 5/6).
-  useEffect(() => {
-    if (selection.kind !== 'agent' || !activeThreadId) return
-    if (activeAnfrage?.status !== 'result' && activeAnfrage?.status !== 'error') return
-    markThreadSeen(activeThreadId).catch((err) => console.error('[chat] markThreadSeen fehlgeschlagen', err))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selection.kind, activeThreadId, activeAnfrage?.status])
-
-  // Textarea wächst mit dem Inhalt (bis zu einer Deckelung), statt intern zu
-  // scrollen oder die Composer-Box zu sprengen - siehe Bericht an die
-  // Nutzerin zur Umstellung von <input> auf <textarea>.
-  useEffect(() => {
-    const el = textareaRef.current
-    if (!el) return
-    el.style.height = 'auto'
-    el.style.height = `${Math.min(el.scrollHeight, 160)}px`
-  }, [draft])
 
   function openConversation(id: string) {
     setSelection({ kind: 'conversation', id })
     setConversations((prev) => prev.map((c) => (c.id === id ? { ...c, unread: false } : c)))
   }
 
-  async function handleSend() {
+  function handleSend() {
     const text = draft.trim()
-    if (!text) return
+    if (!text || selection.kind !== 'conversation') return
     setDraft('')
-
-    if (selection.kind === 'agent') {
-      try {
-        await sendMessage(text)
-      } catch (err) {
-        console.error('[chat] sendMessage fehlgeschlagen', err)
-      }
-      return
-    }
-
     const targetId = selection.id
     setConversations((prev) =>
       prev.map((c) => (c.id === targetId ? { ...c, messages: [...c.messages, { from: 'out', text }] } : c)),
@@ -125,9 +91,6 @@ export default function Chat() {
       console.error('[chat] createAnfrage fehlgeschlagen', err)
     }
   }
-
-  const isAgentBusy = selection.kind === 'agent' && (activeAnfrage?.status === 'working' || activeAnfrage?.status === 'waiting')
-  const firstMessageTime = selection.kind === 'agent' ? activeAnfrage?.messages[0]?.receivedAt : undefined
 
   return (
     <div className="chat">
@@ -228,118 +191,78 @@ export default function Chat() {
           )}
         </header>
 
-        <div className="chat__messages">
-          {selection.kind === 'agent' ? (
-            <>
-              {firstMessageTime && <div className="chat__date-divider">{formatDateDivider(firstMessageTime)}</div>}
-              {(activeAnfrage?.messages ?? []).map((m, i) => (
-                <div className="chat__message-group" key={i}>
-                  {/* Block ERKLÄRT die folgende Nachricht, gehört laut Figma
-                      deshalb davor, nicht danach. */}
-                  <RationaleBlock rationale={m.rationale} />
+        {selection.kind === 'agent' ? (
+          <LumiConversation />
+        ) : (
+          <>
+            <div className="chat__messages">
+              {(activeConversation?.messages ?? []).map((m, i) => {
+                const showSender =
+                  !activeConversation?.isChannel &&
+                  m.from === 'in' &&
+                  (i === 0 || activeConversation!.messages[i - 1].from !== 'in')
+                return (
                   <MessageBox
-                    from={m.role === 'user' ? 'out' : 'in'}
-                    message={m.content}
-                    // Design zeigt keinen Avatar/keinen wiederholten
-                    // Sender-Namen neben einzelnen Lumi-Nachrichten (siehe
-                    // Bericht an die Nutzerin) - showSender deshalb immer
-                    // false im Agenten-Zweig.
-                    showSender={false}
+                    key={i}
+                    from={m.from}
+                    message={m.text}
+                    senderName={activeConversation?.name}
+                    showSender={showSender}
+                    initials={activeConversation?.initials}
+                    avatarColor={activeConversation?.avatarColor}
+                    isLumi={activeConversation?.isLumi}
+                    presence={showSender ? activeConversation?.presence : undefined}
                   />
-                  {m.role === 'assistant' && <LumiMessageIcons message={m.content} receivedAt={m.receivedAt} />}
-                </div>
-              ))}
-            </>
-          ) : (
-            (activeConversation?.messages ?? []).map((m, i) => {
-              const showSender =
-                !activeConversation?.isChannel &&
-                m.from === 'in' &&
-                (i === 0 || activeConversation!.messages[i - 1].from !== 'in')
-              return (
-                <MessageBox
-                  key={i}
-                  from={m.from}
-                  message={m.text}
-                  senderName={activeConversation?.name}
-                  showSender={showSender}
-                  initials={activeConversation?.initials}
-                  avatarColor={activeConversation?.avatarColor}
-                  isLumi={activeConversation?.isLumi}
-                  presence={showSender ? activeConversation?.presence : undefined}
-                />
-              )
-            })
-          )}
-
-          {/* Dauerhaft sichtbar, solange die Lumi-Konversation offen ist -
-              Lumis Präsenz im Verlauf, kein reiner Ladezustand (siehe
-              Bericht an die Nutzerin). Wechselt nur zwischen Idle/Working,
-              sparkle.riv kennt keine weiteren Zustände. */}
-          {selection.kind === 'agent' && (
-            <SparkleIndicator status={activeAnfrage?.status === 'working' ? 'working' : 'idle'} />
-          )}
-          {selection.kind === 'agent' && activeAnfrage?.status === 'waiting' && (
-            // Platzhalter bis Schritt 4 (Bestätigungskarte) - kein Nachrichten-
-            // Inhalt aus dem Backend an dieser Stelle, nur der interne Status.
-            <div className="chat__typing-indicator" aria-live="polite">
-              Lumi wartet auf deine Bestätigung (Bestätigungskarte kommt in Schritt 4).
+                )
+              })}
             </div>
-          )}
-        </div>
 
-        <div className="chat__composer">
-          <textarea
-            ref={textareaRef}
-            placeholder={isAgentBusy ? 'Lumi ist noch mit der letzten Anfrage beschäftigt…' : 'Nachricht eingeben'}
-            value={draft}
-            disabled={isAgentBusy}
-            rows={1}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              // Enter sendet, Shift+Enter fügt einen Zeilenumbruch ein -
-              // preventDefault ist nötig, sonst fügt die Textarea VOR dem
-              // Senden trotzdem schon einen Umbruch ein.
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault()
-                handleSend()
-              }
-            }}
-          />
-          <div className="chat__composer-icons">
-            {selection.kind !== 'agent' && (
-              // AskLumi-Funke gehört nur in Kolleg:innen-Composer, nicht in
-              // den Lumi-Chat selbst (siehe Bericht) - im Lumi-Chat ergäbe
-              // "frag Lumi nach einem Formulierungsvorschlag für Lumi" keinen Sinn.
-              <button
-                type="button"
-                className="chat__composer-icon chat__composer-icon--assistant"
-                title="Formulierungsvorschlag von Lumi"
-              >
-                <Sparkle size={20} weight="fill" />
-              </button>
-            )}
-            <button
-              type="button"
-              className="chat__composer-icon chat__composer-icon--accent"
-              title="Emoji"
-              {...smileyHoverProps}
-            >
-              <Smiley size={20} weight={smileyFilled ? 'fill' : 'regular'} />
-            </button>
-            <span className="chat__composer-divider" aria-hidden="true" />
-            <button
-              type="button"
-              className="chat__composer-icon chat__composer-icon--accent"
-              title="Senden"
-              onClick={handleSend}
-              disabled={isAgentBusy}
-              {...sendHoverProps}
-            >
-              <PaperPlaneRight size={20} weight={sendFilled ? 'fill' : 'regular'} />
-            </button>
-          </div>
-        </div>
+            <div className="chat__composer">
+              <textarea
+                placeholder="Nachricht eingeben"
+                value={draft}
+                rows={1}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault()
+                    handleSend()
+                  }
+                }}
+              />
+              <div className="chat__composer-icons">
+                {/* AskLumi-Funke gehört nur in Kolleg:innen-Composer, nicht in
+                    den Lumi-Chat selbst (siehe Bericht) - im Lumi-Chat ergäbe
+                    "frag Lumi nach einem Formulierungsvorschlag für Lumi" keinen Sinn. */}
+                <button
+                  type="button"
+                  className="chat__composer-icon chat__composer-icon--assistant"
+                  title="Formulierungsvorschlag von Lumi"
+                >
+                  <Sparkle size={20} weight="fill" />
+                </button>
+                <button
+                  type="button"
+                  className="chat__composer-icon chat__composer-icon--accent"
+                  title="Emoji"
+                  {...smileyHoverProps}
+                >
+                  <Smiley size={20} weight={smileyFilled ? 'fill' : 'regular'} />
+                </button>
+                <span className="chat__composer-divider" aria-hidden="true" />
+                <button
+                  type="button"
+                  className="chat__composer-icon chat__composer-icon--accent"
+                  title="Senden"
+                  onClick={handleSend}
+                  {...sendHoverProps}
+                >
+                  <PaperPlaneRight size={20} weight={sendFilled ? 'fill' : 'regular'} />
+                </button>
+              </div>
+            </div>
+          </>
+        )}
       </section>
     </div>
   )

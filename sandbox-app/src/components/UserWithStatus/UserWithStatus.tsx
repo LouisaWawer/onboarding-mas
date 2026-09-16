@@ -1,4 +1,5 @@
 import Avatar, { type AvatarColor } from '../Avatar/Avatar'
+import LumiAvatar from '../LumiAvatar/LumiAvatar'
 import StatusIndicator, { type StatusTone } from '../StatusIndicator/StatusIndicator'
 import './UserWithStatus.css'
 
@@ -42,7 +43,16 @@ export default function UserWithStatus({
   return (
     <span className={`user-with-status ${className ?? ''}`}>
       <span style={effectivePresence ? { marginRight: OVERLAP_PX } : undefined}>
-        <Avatar icon={isLumi ? 'lumi' : 'initials'} initials={initials} color={avatarColor} size={avatarSize} />
+        {/* Bugfix (siehe Bericht an die Nutzerin, Schritt 5): Lumi war hier
+            statisch (Avatar icon="lumi", festes Sparkle-Icon) - jetzt über
+            lumiwithsparklesmall.riv, an derselben Stelle, die von der
+            Chat-Kopfzeile UND der "Agent AI"-Zeile in der Übersicht
+            durchlaufen wird. */}
+        {isLumi ? (
+          <LumiAvatar size={avatarSize} />
+        ) : (
+          <Avatar initials={initials} color={avatarColor} size={avatarSize} />
+        )}
       </span>
       {effectivePresence && <StatusIndicator status={effectivePresence} size={STATUS_SIZE} />}
     </span>

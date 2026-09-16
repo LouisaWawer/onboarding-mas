@@ -36,21 +36,33 @@ export default function SparkleIndicator({ status }: SparkleIndicatorProps) {
   const prefersReducedMotion = usePrefersReducedMotion()
   const [bindingError, setBindingError] = useState(false)
   const [loadError, setLoadError] = useState(false)
-  const { rive, RiveComponent } = useRive({
-    src: '/sparkle.riv',
-    stateMachines: 'AvatarMachine',
-    autoplay: true,
-    // Rein diagnostisch (siehe Bericht an die Nutzerin) - der eigentliche
-    // Bug lag woanders (RiveComponent wurde nie gemountet, siehe unten),
-    // aber diese zwei Callbacks bleiben drin, falls künftig die DATEI
-    // selbst das Problem ist (falscher Pfad, kaputte .riv), statt wieder
-    // stillschweigend im Fallback zu enden.
-    onLoad: () => console.log('[sparkle-indicator] sparkle.riv geladen'),
-    onLoadError: (err) => {
-      console.error('[sparkle-indicator] sparkle.riv konnte nicht geladen werden', err)
-      setLoadError(true)
-    },
-  })
+  // Bugfix (siehe Bericht an die Nutzerin, Schritt 5): bei prefers-reduced-
+  // motion wurde die .riv-Datei bisher trotzdem geladen, nur die CSS-Klasse
+  // .sparkle-indicator--reduced-motion versuchte hinterher die Bewegung zu
+  // kaschieren (kann die intern in der Datei hinterlegte Animation nicht
+  // abschalten, siehe SparkleIndicator.css). useRive akzeptiert null als
+  // ersten Parameter (verifiziert gegen node_modules/@rive-app/react-canvas/
+  // dist/types/index.d.ts) - die Datei wird dann gar nicht erst angefragt.
+  const { rive, RiveComponent } = useRive(
+    prefersReducedMotion
+      ? null
+      : {
+          src: '/sparkle.riv',
+          stateMachines: 'AvatarMachine',
+          autoplay: true,
+          // Rein diagnostisch (siehe Bericht an die Nutzerin) - der
+          // eigentliche Bug lag woanders (RiveComponent wurde nie
+          // gemountet, siehe unten), aber diese zwei Callbacks bleiben
+          // drin, falls künftig die DATEI selbst das Problem ist (falscher
+          // Pfad, kaputte .riv), statt wieder stillschweigend im Fallback
+          // zu enden.
+          onLoad: () => console.log('[sparkle-indicator] sparkle.riv geladen'),
+          onLoadError: (err) => {
+            console.error('[sparkle-indicator] sparkle.riv konnte nicht geladen werden', err)
+            setLoadError(true)
+          },
+        },
+  )
 
   useEffect(() => {
     if (!rive) return
@@ -75,17 +87,18 @@ export default function SparkleIndicator({ status }: SparkleIndicatorProps) {
   // Fassung rendert das Canvas nur, NACHDEM rive schon geladen war - ein
   // Henne-Ei-Deadlock, der sich nie auflöst (kein Canvas im DOM, keine
   // Anfrage nach sparkle.riv, rive bleibt für immer null). Jetzt IMMER
-  // gemountet; der Fallback liegt nur als Overlay darüber, bis geladen ist.
-  const showFallback = !rive || bindingError || loadError
+  // gemountet (außer bei reduced motion, dort wird gar nicht erst geladen,
+  // siehe oben); der Fallback liegt nur als Overlay darüber, bis geladen ist.
+  const showFallback = prefersReducedMotion || !rive || bindingError || loadError
 
   return (
     <div
-      className={`sparkle-indicator ${prefersReducedMotion ? 'sparkle-indicator--reduced-motion' : ''}`}
+      className="sparkle-indicator"
       role={status === 'working' && !showFallback ? 'img' : undefined}
       aria-label={status === 'working' && !showFallback ? 'Lumi denkt nach' : undefined}
       aria-hidden={status === 'idle' || showFallback ? 'true' : undefined}
     >
-      <RiveComponent />
+      {!prefersReducedMotion && <RiveComponent />}
       {showFallback && (
         <div className="sparkle-indicator__fallback" aria-hidden="true">
           <Sparkle size={20} color="var(--color-assistant)" weight="fill" />

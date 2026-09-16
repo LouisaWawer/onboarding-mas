@@ -41,7 +41,7 @@ function addDays(date: Date, days: number) {
 export default function Kalender() {
   const [weekStart, setWeekStart] = useState(() => new Date(2026, 8, 21)) // Montag, 21. September 2026
   const [appointments] = useState(initialAppointments)
-  const sendToLumi = useSendToLumi()
+  const { send: sendToLumi, busy: lumiBusy } = useSendToLumi()
 
   const days = WEEKDAYS.map((label, i) => ({ label, date: addDays(weekStart, i) }))
   const weekEnd = days[days.length - 1].date
@@ -61,7 +61,12 @@ export default function Kalender() {
       <div className="kalender__card">
         <header className="kalender__header">
           <h1 className="kalender__title">Kalender</h1>
-          <PushButton label="Neue Besprechung" onClick={requestNewMeeting} />
+          <PushButton
+            label="Neue Besprechung"
+            onClick={requestNewMeeting}
+            disabled={lumiBusy}
+            title={lumiBusy ? 'Lumi ist noch mit der letzten Anfrage beschäftigt…' : undefined}
+          />
         </header>
         <div className="kalender__divider" />
 
