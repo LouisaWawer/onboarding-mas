@@ -20,3 +20,22 @@ backend/*.jsonl
 backend/*.sqlite
 backend/*.sqlite-wal
 backend/*.sqlite-shm
+
+# Dieselben Dateitypen in ALLEN Unterordnern. Die vier Muster oben greifen
+# nur eine Ebene tief: ein Muster mit Schrägstrich ist pfadgebunden, und *
+# überspringt keine Verzeichnisgrenze - backend/backup_Stefan/checkpoints.sqlite
+# war dadurch nicht erfasst.
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.jsonl
+
+# Rohdaten und Auswertungen der Nutzerstudie: enthalten die vollstaendigen
+# Chatverlaeufe der Testpersonen und gehoeren damit nicht in ein
+# veroeffentlichtes Repository.
+backend/backup_*/
+backend/auswertung/
+
+# Gebauter Frontend-Stand (wird zur Laufzeit vom Backend ausgeliefert,
+# siehe README) - bereits durch "dist/" oben abgedeckt, hier zur Klarheit.
+sandbox-app/dist/
